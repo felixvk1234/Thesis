@@ -12,3 +12,7 @@ It also contains the code to train the data using the different methods.
 ![image](https://github.com/user-attachments/assets/3160656e-eb0f-4e2c-ab64-8d7b725bbf48)
 
 ![gnn_layers_table_colored](https://github.com/user-attachments/assets/7790d228-305d-4004-9ebc-4369c7195381)
+
+![image](https://github.com/user-attachments/assets/a509def5-0c62-4d53-9d31-f8a732362f1f)
+
+
