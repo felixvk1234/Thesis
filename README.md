@@ -15,4 +15,5 @@ It also contains the code to train the data using the different methods.
 
 ![image](https://github.com/user-attachments/assets/a509def5-0c62-4d53-9d31-f8a732362f1f)
 
+![3d62aa9e-0156-47ee-85cf-bcc9801154eb](https://github.com/user-attachments/assets/90bfd07a-7e14-4947-95b5-5b91fb43af13)
 
