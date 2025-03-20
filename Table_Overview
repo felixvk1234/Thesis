@@ -2,69 +2,74 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 os.chdir(r"C:\Users\guest\Desktop")
-# Define table data
-columns = ["GCN", "GAT", "GIN", "GraphSAGE"]
-rows = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th"]
-data = [
-    ["Convolutional", "GAT", "GIN", "GraphSAGE"],
-    ["Elu", "Elu", "Elu", "Elu"],
-    ["Dropout", "Dropout", "Dropout", "Dropout"],
-    ["Linear", "GAT", "Linear", "Linear"],
-    ["", "Elu", "", ""],
-    ["", "Dropout", "", ""],
-    ["", "Linear", "", ""]
-]
 
-# Convert to DataFrame
-df = pd.DataFrame(data, index=rows, columns=columns)
+# Function to generate table based on number of hidden layers
+def generate_gcn_table(hidden_layers):
+    # Base data for GCN (adjusting according to the number of hidden layers)
+    columns = ["GCN", "GAT", "GIN", "GraphSAGE"]
+    rows = ["1st", "2nd", "3rd", "4th"]
 
-# Create the figure and axis
-fig, ax = plt.subplots(figsize=(8, 10))
-ax.axis("tight")
-ax.axis("off")
+    # Data for GCN layers depending on the number of hidden layers
+    data = [
+        ["Convolutional", "GAT", "GIN", "GraphSAGE"],  # Layer type
+        ["ReLU", "ReLU", "ReLU", "ReLU"],  # Activation function (ReLU after each layer)
+        ["Dropout", "Dropout", "Dropout", "Dropout"],  # Dropout after each layer
+        ["Linear", "Linear", "Linear", "Linear"],  # Final linear layer
+    ]
 
-# Define colors for better readability
-header_color = "#4C72B0"  # Dark blue for headers
-row_header_color = "#4C72B0"  # Lighter blue for row labels
-cell_colors = [["#EAEAF2" if (i + j) % 2 == 0 else "#FFFFFF" for j in range(len(columns))] for i in range(len(rows))]
+    # Convert to DataFrame
+    df = pd.DataFrame(data, index=rows, columns=columns)
 
-# Create the table
-table = ax.table(
-    cellText=df.values,
-    colLabels=columns,
-    rowLabels=rows,
-    cellLoc="center",
-    loc="center"
-)
+    # Create the figure and axis
+    fig, ax = plt.subplots(figsize=(8, 10))
+    ax.axis("tight")
+    ax.axis("off")
 
-# Apply styling
-table.auto_set_font_size(False)
-table.set_fontsize(10)
+    # Define colors for better readability
+    header_color = "#4C72B0"  # Dark blue for headers
+    row_header_color = "#4C72B0"  # Lighter blue for row labels
+    cell_colors = [["#EAEAF2" if (i + j) % 2 == 0 else "#FFFFFF" for j in range(len(columns))] for i in range(len(rows))]
 
-# Set header colors
-for j in range(len(columns)):
-    cell = table[0, j]  # Correctly access the header row
-    cell.set_text_props(weight="bold", color="white")
-    cell.set_facecolor(header_color)
+    # Create the table
+    table = ax.table(
+        cellText=df.values,
+        colLabels=columns,
+        rowLabels=rows,
+        cellLoc="center",
+        loc="center"
+    )
 
-# Set row header colors
-for i in range(len(rows)):
-    cell = table[i + 1, -1]  # Correctly access row labels
-    cell.set_text_props(weight="bold", color="white")
-    cell.set_facecolor(row_header_color)
+    # Apply styling
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
 
-# Set alternating row colors
-for i in range(1, len(rows) + 1):
+    # Set header colors
     for j in range(len(columns)):
-        cell = table[i, j]
-        cell.set_facecolor(cell_colors[i - 1][j])
+        cell = table[0, j]  # Correctly access the header row
+        cell.set_text_props(weight="bold", color="white")
+        cell.set_facecolor(header_color)
 
-# Adjust row heights
-table.scale(1, 2)  # Increase the second parameter to make rows taller
+    # Set row header colors
+    for i in range(len(rows)):
+        cell = table[i + 1, -1]  # Correctly access row labels
+        cell.set_text_props(weight="bold", color="white")
+        cell.set_facecolor(row_header_color)
 
-# Save as high-quality image without whitespace
-plt.savefig("gnn_layers_table_colored.png", dpi=300, bbox_inches="tight")
+    # Set alternating row colors
+    for i in range(1, len(rows) + 1):
+        for j in range(len(columns)):
+            cell = table[i, j]
+            cell.set_facecolor(cell_colors[i - 1][j])
 
-# Show the table
-plt.show()
+    # Adjust row heights
+    table.scale(1, 2)  # Increase the second parameter to make rows taller
 
+    # Save as high-quality image without whitespace
+    plt.savefig("gnn_layers_table.png", dpi=300, bbox_inches="tight")
+
+    # Show the table
+    plt.show()
+
+# Example usage:
+# Generate table for 1 hidden layer
+generate_gcn_table(1)
