@@ -1,4 +1,3 @@
-# [CHECKPOINT] Imports and Setup
 import torch
 import pandas as pd
 import numpy as np
@@ -9,7 +8,7 @@ from torch_geometric.data import Data
 from torch_geometric.nn import GCNConv
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from sklearn.preprocessing import StandardScaler
 from EMP.metrics import empCreditScoring, empChurn
 from copy import deepcopy
@@ -269,7 +268,6 @@ class EnhancedGCN(nn.Module):
         out = self.lin(h)
         return torch.clamp(out, min=-10, max=10)  # Prevent extreme values
 
-# [CHECKPOINT] The Trainer class requires adjustments as well
 class Trainer:
     def __init__(self, model, device, alpha=0.25, gamma=2.0):
         self.model = model.to(device)
@@ -341,15 +339,27 @@ class Trainer:
                 
                 y_true = data.y.cpu().numpy()
 
-                auc = roc_auc_score(y_true, probs)
-                lift_005 = self.calculate_lift(y_true, probs, 0.005)
-                lift_05 = self.calculate_lift(y_true, probs, 0.05)
+                # Calculate AUC
+                auc_roc = roc_auc_score(y_true, probs)
+                
+                # Calculate AUPRC
+                precision, recall, _ = precision_recall_curve(y_true, probs)
+                auprc = auc(recall, precision)
+                
+                # Calculate various lift metrics
+                lift_0005 = self.calculate_lift(y_true, probs, 0.005)
+                lift_001 = self.calculate_lift(y_true, probs, 0.01)
+                lift_005 = self.calculate_lift(y_true, probs, 0.05)
+                lift_01 = self.calculate_lift(y_true, probs, 0.1)
 
                 metrics = {
                     'loss': loss.item(),
-                    'auc': auc,
+                    'auc': auc_roc,
+                    'auprc': auprc,
+                    'lift_0005': lift_0005,
+                    'lift_001': lift_001,
                     'lift_005': lift_005,
-                    'lift_05': lift_05,
+                    'lift_01': lift_01,
                     'probs': probs,
                     'labels': y_true
                 }
@@ -358,11 +368,17 @@ class Trainer:
                     try:
                         emp_output = empChurn(probs, y_true, return_output=True, print_output=False)
                         metrics['emp'] = float(emp_output.EMP)
+                        metrics['hand'] = float(emp_output.Hand)
+                        metrics['mp'] = float(emp_output.MP)
                     except Exception as e:
-                        print(f"[Checkpoint] Error calculating EMP: {str(e)}")
+                        print(f"[Checkpoint] Error calculating EMP metrics: {str(e)}")
                         metrics['emp'] = 0.0
+                        metrics['hand'] = 0.0
+                        metrics['mp'] = 0.0
                 else:
                     metrics['emp'] = 0.0
+                    metrics['hand'] = 0.0
+                    metrics['mp'] = 0.0
                 
                 return metrics
             except Exception as e:
@@ -371,9 +387,14 @@ class Trainer:
                 return {
                     'loss': float('inf'),
                     'auc': 0.5,
+                    'auprc': 0.5,
+                    'lift_0005': 1.0,
+                    'lift_001': 1.0,
                     'lift_005': 1.0,
-                    'lift_05': 1.0,
+                    'lift_01': 1.0,
                     'emp': 0.0,
+                    'hand': 0.0,
+                    'mp': 0.0,
                     'probs': np.array([0.5]),
                     'labels': np.array([0])
                 }
@@ -434,9 +455,10 @@ class Experiment:
     def run_hyperparameter_tuning(self):
         print("[Checkpoint] ====== Starting Hyperparameter Tuning ======")
         
-        best_metrics = {'val_auc': 0}
-        best_models = {'auc': None}
-        best_configs = {'auc': None}
+        # Update best metrics to include AUPRC as the primary metric
+        best_metrics = {'val_auprc': 0, 'val_auc': 0}
+        best_models = {'auprc': None, 'auc': None}
+        best_configs = {'auprc': None, 'auc': None}
         
         num_features = self.data_train.x.shape[1]
         print(f"[Checkpoint] Number of input features: {num_features}")
@@ -473,6 +495,7 @@ class Experiment:
                                     weight_decay=1e-5  # Add weight decay
                                 )
 
+                                best_val_auprc = 0
                                 best_val_auc = 0
                                 epochs_no_improve = 0
                                 best_epoch = 0
@@ -497,43 +520,113 @@ class Experiment:
 
                                     if epoch % 5 == 0 and not np.isnan(loss):
                                         val_metrics = trainer.evaluate(self.data_val)
-                                        print(f"[Checkpoint] Validation metrics - AUC: {val_metrics['auc']:.6f}, Loss: {val_metrics['loss']:.6f}")
-                                        print(f"[Checkpoint] Validation metrics - Lift@0.5%: {val_metrics['lift_005']:.6f}, Lift@5%: {val_metrics['lift_05']:.6f}")
+                                        print(f"[Checkpoint] Validation metrics - AUC: {val_metrics['auc']:.6f}, AUPRC: {val_metrics['auprc']:.6f}, Loss: {val_metrics['loss']:.6f}")
+                                        print(f"[Checkpoint] Validation lifts - @0.5%: {val_metrics['lift_0005']:.6f}, @1%: {val_metrics['lift_001']:.6f}, @5%: {val_metrics['lift_005']:.6f}, @10%: {val_metrics['lift_01']:.6f}")
 
+                                        # Update best models based on AUPRC improvement
+                                        if val_metrics['auprc'] > best_metrics['val_auprc']:
+                                            print(f"[Checkpoint] New best model found by AUPRC! AUPRC: {val_metrics['auprc']:.6f}")
+                                            best_metrics['val_auprc'] = val_metrics['auprc']
+                                            best_models['auprc'] = deepcopy(model)
+                                            best_configs['auprc'] = (lr, hidden, num_layers, alpha, gamma)
+                                        
+                                        # Still keep track of best AUC model
                                         if val_metrics['auc'] > best_metrics['val_auc']:
-                                            print(f"[Checkpoint] New best model found! AUC: {val_metrics['auc']:.6f}")
+                                            print(f"[Checkpoint] New best model found by AUC! AUC: {val_metrics['auc']:.6f}")
                                             best_metrics['val_auc'] = val_metrics['auc']
                                             best_models['auc'] = deepcopy(model)
                                             best_configs['auc'] = (lr, hidden, num_layers, alpha, gamma)
                                         
-                                        if val_metrics['auc'] > best_val_auc:
-                                            best_val_auc = val_metrics['auc']
+                                        # Early stopping based on AUPRC (primary metric now)
+                                        if val_metrics['auprc'] > best_val_auprc:
+                                            best_val_auprc = val_metrics['auprc']
                                             best_epoch = epoch
                                             epochs_no_improve = 0
                                         else:
                                             epochs_no_improve += 1
                                             if epochs_no_improve >= Config.PATIENCE:
-                                                print(f"[Checkpoint] Early stopping at epoch {epoch}")
+                                                print(f"[Checkpoint] Early stopping at epoch {epoch} (no AUPRC improvement for {Config.PATIENCE} evaluations)")
                                                 break
                                 
-                                print(f"[Checkpoint] Configuration completed. Best AUC: {best_val_auc:.6f}")
+                                print(f"[Checkpoint] Configuration completed. Best AUPRC: {best_val_auprc:.6f}")
                             except Exception as e:
                                 print(f"[Checkpoint] Error during configuration {config_num-1}: {str(e)}")
                                 print("[Checkpoint] Skipping to next configuration")
                                 continue
 
         print("\n[Checkpoint] ====== Final Evaluation ======")
-        for metric, model in best_models.items():
-            if model is not None:
-                print(f"[Checkpoint] Evaluating best model by {metric}")
-                test_metrics = Trainer(model, Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
+        
+        # First evaluate the AUPRC best model (primary metric)
+        if best_models['auprc'] is not None:
+            print(f"[Checkpoint] Evaluating best model by AUPRC")
+            test_metrics = Trainer(best_models['auprc'], Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
+            
+            config = best_configs['auprc']
+            print(f"[Checkpoint] Best config by AUPRC (lr={config[0]}, hidden={config[1]}, layers={config[2]}, alpha={config[3]}, gamma={config[4]}):")
+            print(f"[Checkpoint] Test AUPRC={test_metrics['auprc']:.6f}")
+            print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
+            print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
+            print(f"[Checkpoint] Test Hand={test_metrics['hand']:.6f}")
+            print(f"[Checkpoint] Test MP={test_metrics['mp']:.6f}")
+            print(f"[Checkpoint] Test Lift@0.5%={test_metrics['lift_0005']:.6f}")
+            print(f"[Checkpoint] Test Lift@1%={test_metrics['lift_001']:.6f}")
+            print(f"[Checkpoint] Test Lift@5%={test_metrics['lift_005']:.6f}")
+            print(f"[Checkpoint] Test Lift@10%={test_metrics['lift_01']:.6f}")
+
+        # Also evaluate the AUC best model if different
+        if best_models['auc'] is not None and best_models['auc'] is not best_models['auprc']:
+            print(f"\n[Checkpoint] Evaluating best model by AUC")
+            test_metrics = Trainer(best_models['auc'], Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
+            
+            config = best_configs['auc']
+            print(f"[Checkpoint] Best config by AUC (lr={config[0]}, hidden={config[1]}, layers={config[2]}, alpha={config[3]}, gamma={config[4]}):")
+            print(f"[Checkpoint] Test AUPRC={test_metrics['auprc']:.6f}")
+            print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
+            print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
+            print(f"[Checkpoint] Test Hand={test_metrics['hand']:.6f}")
+            print(f"[Checkpoint] Test MP={test_metrics['mp']:.6f}")
+            print(f"[Checkpoint] Test Lift@0.5%={test_metrics['lift_0005']:.6f}")
+            print(f"[Checkpoint] Test Lift@1%={test_metrics['lift_001']:.6f}")
+            print(f"[Checkpoint] Test Lift@5%={test_metrics['lift_005']:.6f}")
+            print(f"[Checkpoint] Test Lift@10%={test_metrics['lift_01']:.6f}")
+
+        # Create a comprehensive report of the best models
+        print("\n[Checkpoint] ====== Comprehensive Performance Report ======")
+        print("Metric   | AUPRC Best Model | AUC Best Model")
+        print("---------+------------------+---------------")
+        
+        if best_models['auprc'] is not None and best_models['auc'] is not None:
+            auprc_model_metrics = Trainer(best_models['auprc'], Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
+            auc_model_metrics = Trainer(best_models['auc'], Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
+            
+            print(f"AUPRC    | {auprc_model_metrics['auprc']:.6f}       | {auc_model_metrics['auprc']:.6f}")
+            print(f"AUC      | {auprc_model_metrics['auc']:.6f}       | {auc_model_metrics['auc']:.6f}")
+            print(f"EMP      | {auprc_model_metrics['emp']:.6f}       | {auc_model_metrics['emp']:.6f}")
+            print(f"Hand     | {auprc_model_metrics['hand']:.6f}       | {auc_model_metrics['hand']:.6f}")
+            print(f"MP       | {auprc_model_metrics['mp']:.6f}       | {auc_model_metrics['mp']:.6f}")
+            print(f"Lift@0.5%| {auprc_model_metrics['lift_0005']:.6f}       | {auc_model_metrics['lift_0005']:.6f}")
+            print(f"Lift@1%  | {auprc_model_metrics['lift_001']:.6f}       | {auc_model_metrics['lift_001']:.6f}")
+            print(f"Lift@5%  | {auprc_model_metrics['lift_005']:.6f}       | {auc_model_metrics['lift_005']:.6f}")
+            print(f"Lift@10% | {auprc_model_metrics['lift_01']:.6f}       | {auc_model_metrics['lift_01']:.6f}")
+
+        # Save model predictions for further analysis
+        if best_models['auprc'] is not None:
+            try:
+                print("\n[Checkpoint] Saving best model (AUPRC) predictions for analysis")
+                test_metrics = Trainer(best_models['auprc'], Config.DEVICE).evaluate(self.data_test)
                 
-                config = best_configs[metric]
-                print(f"[Checkpoint] Best config (lr={config[0]}, hidden={config[1]}, layers={config[2]}, alpha={config[3]}, gamma={config[4]}):")
-                print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
-                print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
-                print(f"[Checkpoint] Test Lift@0.5%={test_metrics['lift_005']:.6f}")
-                print(f"[Checkpoint] Test Lift@5%={test_metrics['lift_05']:.6f}")
+                # Create DataFrame with predictions
+                predictions_df = pd.DataFrame({
+                    'true_labels': test_metrics['labels'],
+                    'predicted_probs': test_metrics['probs']
+                })
+                
+                # Save to CSV
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                predictions_df.to_csv(f"auprc_best_model_predictions_{timestamp}.csv", index=False)
+                print(f"[Checkpoint] Predictions saved as auprc_best_model_predictions_{timestamp}.csv")
+            except Exception as e:
+                print(f"[Checkpoint] Error saving predictions: {str(e)}")
 
         return best_models
 
