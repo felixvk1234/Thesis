@@ -1,4 +1,3 @@
-# [CHECKPOINT] Imports and Setup
 import torch
 import pandas as pd
 import numpy as np
@@ -9,7 +8,7 @@ from torch_geometric.data import Data
 from torch_geometric.nn import GCNConv
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from sklearn.preprocessing import StandardScaler
 from EMP.metrics import empCreditScoring, empChurn
 from copy import deepcopy
@@ -19,13 +18,13 @@ print("[Checkpoint] All libraries imported successfully.")
 # Configuration
 class Config:
     DATA_DIR = r"/data/leuven/373/vsc37331/Mobile_Vikings/"
-    TRAIN_EDGE = "SN_M2_l.csv"
+    TRAIN_EDGE = "SN_M2_c.csv"
     TRAIN_LABEL = "L_M3.csv"
     TRAIN_RMF = "train_rmf.csv"
-    VAL_EDGE = "SN_M3_l.csv"
+    VAL_EDGE = "SN_M3_c.csv"
     VAL_LABEL = "L_M4.csv"
     VAL_RMF = "val_rmf.csv"
-    TEST_EDGE = "SN_M4_l.csv"
+    TEST_EDGE = "SN_M4_c.csv"
     TEST_LABEL = "L_test.csv"
     TEST_RMF = "test_rmf.csv"
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -146,9 +145,16 @@ class GraphDataProcessor:
         missing_j = mapped_j.isna().sum()
         print(f"[Checkpoint] Missing i mappings: {missing_i}, Missing j mappings: {missing_j}")
 
-        edge_index_0 = torch.tensor([mapped_i.values, mapped_j.values], dtype=torch.long)
-        edge_index_1 = torch.tensor([mapped_j.values, mapped_i.values], dtype=torch.long)
+        # Filter out any edges with NA mappings
+        valid_edges = ~(mapped_i.isna() | mapped_j.isna())
+        mapped_i = mapped_i[valid_edges].values
+        mapped_j = mapped_j[valid_edges].values
+
+        # Create edge indices for undirected graph (without edge weights)
+        edge_index_0 = torch.tensor([mapped_i, mapped_j], dtype=torch.long)
+        edge_index_1 = torch.tensor([mapped_j, mapped_i], dtype=torch.long)
         edge_index = torch.cat([edge_index_0, edge_index_1], dim=1)
+        
         print(f"[Checkpoint] Created undirected edge index with shape: {edge_index.shape}")
 
         # Step 7: Prepare node features
@@ -165,9 +171,16 @@ class GraphDataProcessor:
         print(f"[Checkpoint] Label tensor shape: {y.shape}")
         print(f"[Checkpoint] Label distribution: {torch.bincount(y)}")
 
-        # Step 9: Create and return PyG Data object
-        data = Data(x=x, edge_index=edge_index, y=y, num_nodes=x.shape[0], num_edges=edge_index.shape[1], num_features=x.shape[1])
-        print(f"[Checkpoint] Created Data object with {data.num_nodes} nodes and {data.num_edges} edges, and {data.num_features} features")
+        # Step 9: Create and return PyG Data object without edge weights
+        data = Data(
+            x=x, 
+            edge_index=edge_index,
+            y=y, 
+            num_nodes=x.shape[0], 
+            num_edges=edge_index.shape[1], 
+            num_features=x.shape[1]
+        )
+        print(f"[Checkpoint] Created Data object with {data.num_nodes} nodes, {data.num_edges} edges, {data.num_features} features")
 
         return data
 
@@ -228,6 +241,7 @@ class EnhancedGCN(nn.Module):
         h = F.dropout(h, p=self.dropout_rate, training=self.training)
         
         for conv in self.convs:
+            # Pass only features and edge indices to GCNConv (no edge_weight)
             h_new = conv(h, edge_index)
             h_new = F.relu(h_new)  # Using ReLU for stability
             h_new = self.batch_norm(h_new)  # Apply batch normalization
@@ -257,6 +271,7 @@ class Trainer:
         edge_index = data.edge_index.to(self.device)
         y = data.y.float().to(self.device)
         
+        # Call model without edge weights
         out = self.model(x, edge_index)
         loss = self.criterion(out.squeeze(), y)
         
@@ -282,6 +297,7 @@ class Trainer:
             y = data.y.float().to(self.device)
             
             try:
+                # Call model without edge weights
                 out = self.model(x, edge_index)
                 loss = self.criterion(out.squeeze(), y)
 
@@ -295,15 +311,27 @@ class Trainer:
                 
                 y_true = data.y.cpu().numpy()
 
-                auc = roc_auc_score(y_true, probs)
-                lift_005 = self.calculate_lift(y_true, probs, 0.005)
-                lift_05 = self.calculate_lift(y_true, probs, 0.05)
+                # Calculate AUC
+                auc_roc = roc_auc_score(y_true, probs)
+                
+                # Calculate AUPRC
+                precision, recall, _ = precision_recall_curve(y_true, probs)
+                auprc = auc(recall, precision)
+                
+                # Calculate various lift metrics
+                lift_0005 = self.calculate_lift(y_true, probs, 0.005)
+                lift_001 = self.calculate_lift(y_true, probs, 0.01)
+                lift_005 = self.calculate_lift(y_true, probs, 0.05)
+                lift_01 = self.calculate_lift(y_true, probs, 0.1)
 
                 metrics = {
                     'loss': loss.item(),
-                    'auc': auc,
+                    'auc': auc_roc,
+                    'auprc': auprc,
+                    'lift_0005': lift_0005,
+                    'lift_001': lift_001,
                     'lift_005': lift_005,
-                    'lift_05': lift_05,
+                    'lift_01': lift_01,
                     'probs': probs,
                     'labels': y_true
                 }
@@ -312,11 +340,17 @@ class Trainer:
                     try:
                         emp_output = empChurn(probs, y_true, return_output=True, print_output=False)
                         metrics['emp'] = float(emp_output.EMP)
+                        metrics['hand'] = float(emp_output.Hand)
+                        metrics['mp'] = float(emp_output.MP)
                     except Exception as e:
-                        print(f"[Checkpoint] Error calculating EMP: {str(e)}")
+                        print(f"[Checkpoint] Error calculating EMP metrics: {str(e)}")
                         metrics['emp'] = 0.0
+                        metrics['hand'] = 0.0
+                        metrics['mp'] = 0.0
                 else:
                     metrics['emp'] = 0.0
+                    metrics['hand'] = 0.0
+                    metrics['mp'] = 0.0
                 
                 return metrics
             except Exception as e:
@@ -325,9 +359,14 @@ class Trainer:
                 return {
                     'loss': float('inf'),
                     'auc': 0.5,
+                    'auprc': 0.5,
+                    'lift_0005': 1.0,
+                    'lift_001': 1.0,
                     'lift_005': 1.0,
-                    'lift_05': 1.0,
+                    'lift_01': 1.0,
                     'emp': 0.0,
+                    'hand': 0.0,
+                    'mp': 0.0,
                     'probs': np.array([0.5]),
                     'labels': np.array([0])
                 }
@@ -388,9 +427,10 @@ class Experiment:
     def run_hyperparameter_tuning(self):
         print("[Checkpoint] ====== Starting Hyperparameter Tuning ======")
         
-        best_metrics = {'val_auc': 0}
-        best_models = {'auc': None}
-        best_configs = {'auc': None}
+        # Only track best model by AUPRC now
+        best_val_auprc = 0
+        best_model = None
+        best_config = None
         
         num_features = self.data_train.x.shape[1]
         print(f"[Checkpoint] Number of input features: {num_features}")
@@ -427,7 +467,7 @@ class Experiment:
                                     weight_decay=1e-5  # Add weight decay
                                 )
 
-                                best_val_auc = 0
+                                current_best_val_auprc = 0
                                 epochs_no_improve = 0
                                 best_epoch = 0
                                 nan_epochs = 0  # Count consecutive NaN epochs
@@ -451,45 +491,69 @@ class Experiment:
 
                                     if epoch % 5 == 0 and not np.isnan(loss):
                                         val_metrics = trainer.evaluate(self.data_val)
-                                        print(f"[Checkpoint] Validation metrics - AUC: {val_metrics['auc']:.6f}, Loss: {val_metrics['loss']:.6f}")
-                                        print(f"[Checkpoint] Validation metrics - Lift@0.5%: {val_metrics['lift_005']:.6f}, Lift@5%: {val_metrics['lift_05']:.6f}")
+                                        print(f"[Checkpoint] Validation metrics - AUC: {val_metrics['auc']:.6f}, AUPRC: {val_metrics['auprc']:.6f}, Loss: {val_metrics['loss']:.6f}")
+                                        print(f"[Checkpoint] Validation lifts - @0.5%: {val_metrics['lift_0005']:.6f}, @1%: {val_metrics['lift_001']:.6f}, @5%: {val_metrics['lift_005']:.6f}, @10%: {val_metrics['lift_01']:.6f}")
 
-                                        if val_metrics['auc'] > best_metrics['val_auc']:
-                                            print(f"[Checkpoint] New best model found! AUC: {val_metrics['auc']:.6f}")
-                                            best_metrics['val_auc'] = val_metrics['auc']
-                                            best_models['auc'] = deepcopy(model)
-                                            best_configs['auc'] = (lr, hidden, num_layers, alpha, gamma)
+                                        # Update best model based on AUPRC improvement
+                                        if val_metrics['auprc'] > best_val_auprc:
+                                            print(f"[Checkpoint] New best model found! AUPRC: {val_metrics['auprc']:.6f} (previous best: {best_val_auprc:.6f})")
+                                            best_val_auprc = val_metrics['auprc']
+                                            best_model = deepcopy(model)
+                                            best_config = (lr, hidden, num_layers, alpha, gamma)
                                         
-                                        if val_metrics['auc'] > best_val_auc:
-                                            best_val_auc = val_metrics['auc']
+                                        # Early stopping based on AUPRC
+                                        if val_metrics['auprc'] > current_best_val_auprc:
+                                            current_best_val_auprc = val_metrics['auprc']
                                             best_epoch = epoch
                                             epochs_no_improve = 0
                                         else:
                                             epochs_no_improve += 1
                                             if epochs_no_improve >= Config.PATIENCE:
-                                                print(f"[Checkpoint] Early stopping at epoch {epoch}")
+                                                print(f"[Checkpoint] Early stopping at epoch {epoch} (no AUPRC improvement for {Config.PATIENCE} evaluations)")
                                                 break
                                 
-                                print(f"[Checkpoint] Configuration completed. Best AUC: {best_val_auc:.6f}")
+                                print(f"[Checkpoint] Configuration completed. Best AUPRC: {current_best_val_auprc:.6f}")
                             except Exception as e:
                                 print(f"[Checkpoint] Error during configuration {config_num-1}: {str(e)}")
                                 print("[Checkpoint] Skipping to next configuration")
                                 continue
 
         print("\n[Checkpoint] ====== Final Evaluation ======")
-        for metric, model in best_models.items():
-            if model is not None:
-                print(f"[Checkpoint] Evaluating best model by {metric}")
-                test_metrics = Trainer(model, Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
-                
-                config = best_configs[metric]
-                print(f"[Checkpoint] Best config (lr={config[0]}, hidden={config[1]}, layers={config[2]}, alpha={config[3]}, gamma={config[4]}):")
-                print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
-                print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
-                print(f"[Checkpoint] Test Lift@0.5%={test_metrics['lift_005']:.6f}")
-                print(f"[Checkpoint] Test Lift@5%={test_metrics['lift_05']:.6f}")
+        
+        # Evaluate the best model
+        if best_model is not None:
+            print(f"[Checkpoint] Evaluating best model")
+            test_metrics = Trainer(best_model, Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
+            
+            print(f"[Checkpoint] Best config (lr={best_config[0]}, hidden={best_config[1]}, layers={best_config[2]}, alpha={best_config[3]}, gamma={best_config[4]}):")
+            print(f"[Checkpoint] Test AUPRC={test_metrics['auprc']:.6f}")
+            print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
+            print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
+            print(f"[Checkpoint] Test Hand={test_metrics['hand']:.6f}")
+            print(f"[Checkpoint] Test MP={test_metrics['mp']:.6f}")
+            print(f"[Checkpoint] Test Lift@0.5%={test_metrics['lift_0005']:.6f}")
+            print(f"[Checkpoint] Test Lift@1%={test_metrics['lift_001']:.6f}")
+            print(f"[Checkpoint] Test Lift@5%={test_metrics['lift_005']:.6f}")
+            print(f"[Checkpoint] Test Lift@10%={test_metrics['lift_01']:.6f}")
 
-        return best_models
+            # Save model predictions for further analysis
+            try:
+                print("\n[Checkpoint] Saving best model predictions for analysis")
+                
+                # Create DataFrame with predictions
+                predictions_df = pd.DataFrame({
+                    'true_labels': test_metrics['labels'],
+                    'predicted_probs': test_metrics['probs']
+                })
+                
+                # Save to CSV
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                predictions_df.to_csv(f"best_model_predictions_{timestamp}.csv", index=False)
+                print(f"[Checkpoint] Predictions saved as best_model_predictions_{timestamp}.csv")
+            except Exception as e:
+                print(f"[Checkpoint] Error saving predictions: {str(e)}")
+
+        return best_model
 
 if __name__ == "__main__":
     # Set manual seeds for reproducibility
@@ -499,7 +563,7 @@ if __name__ == "__main__":
     print("[Checkpoint] ====== Script Started ======")
     try:
         experiment = Experiment()
-        best_models = experiment.run_hyperparameter_tuning()
+        best_model = experiment.run_hyperparameter_tuning()
         print("[Checkpoint] ====== Script Finished ======")
     except Exception as e:
         print(f"[Checkpoint] CRITICAL ERROR: {str(e)}")
