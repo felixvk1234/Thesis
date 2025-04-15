@@ -1,5 +1,3 @@
-
-# [CHECKPOINT] Imports and Setup
 import torch
 import pandas as pd
 import numpy as np
@@ -10,7 +8,7 @@ from torch_geometric.data import Data
 from torch_geometric.nn import GCNConv
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from sklearn.preprocessing import StandardScaler
 from EMP.metrics import empCreditScoring, empChurn
 from copy import deepcopy
@@ -20,21 +18,23 @@ print("[Checkpoint] All libraries imported successfully.")
 # Configuration
 class Config:
     DATA_DIR = r"/data/leuven/373/vsc37331/Mobile_Vikings/"
-    # Call graph files
-    TRAIN_EDGE_CALL = "SN_M2_c.csv"
-    VAL_EDGE_CALL = "SN_M3_c.csv"
-    TEST_EDGE_CALL = "SN_M4_c.csv"
-    # Location graph files
-    TRAIN_EDGE_LOC = "SN_M2_l.csv"
-    VAL_EDGE_LOC = "SN_M3_l.csv"
-    TEST_EDGE_LOC = "SN_M4_l.csv"
-    # Label files
+    # Add support for different edge weight types
+    EDGE_WEIGHT_TYPE = "both"  # Options: "length", "count", or "both"
+    
+    # Edge files based on weight type
+    TRAIN_EDGE_L = "SN_M2_l.csv"
+    TRAIN_EDGE_C = "SN_M2_c.csv"
+    VAL_EDGE_L = "SN_M3_l.csv"
+    VAL_EDGE_C = "SN_M3_c.csv"
+    TEST_EDGE_L = "SN_M4_l.csv"
+    TEST_EDGE_C = "SN_M4_c.csv"
+    
+    # Other config remains the same
     TRAIN_LABEL = "L_M3.csv"
-    VAL_LABEL = "L_M4.csv"
-    TEST_LABEL = "L_test.csv"
-    # RMF features
     TRAIN_RMF = "train_rmf.csv"
+    VAL_LABEL = "L_M4.csv"
     VAL_RMF = "val_rmf.csv"
+    TEST_LABEL = "L_test.csv"
     TEST_RMF = "test_rmf.csv"
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     LEARNING_RATES = [0.01, 0.001, 0.0001]
@@ -52,6 +52,7 @@ class Config:
 
 print(f"[Checkpoint] Configuration initialized")
 print(f"[Checkpoint] Using device: {Config.DEVICE}")
+print(f"[Checkpoint] Edge weight type: {Config.EDGE_WEIGHT_TYPE}")
 
 os.chdir(Config.DATA_DIR)
 print(f"[Checkpoint] Working directory set to: {os.getcwd()}")
@@ -111,12 +112,24 @@ class GraphDataProcessor:
             return set()
 
     @staticmethod
-    def remove_nodes_and_create_data(rmf_path, edge_call_path, edge_loc_path, label_path, churner_set_m1):
+    def remove_nodes_and_create_data(rmf_path, edge_path_l, edge_path_c, label_path, churner_set_m1, edge_weight_type="length"):
         node_df = pd.read_csv(rmf_path)
-        edge_call_df = pd.read_csv(edge_call_path)
-        edge_loc_df = pd.read_csv(edge_loc_path)
         label_df = pd.read_csv(label_path)
-        print(f"[Checkpoint] Loaded RMF, call edge, location edge, and label data")
+        print(f"[Checkpoint] Loaded RMF and label data")
+
+        # Load appropriate edge data based on weight type
+        if edge_weight_type == "length":
+            edge_df = pd.read_csv(edge_path_l)
+            print(f"[Checkpoint] Using LENGTH as edge weight type")
+        elif edge_weight_type == "count":
+            edge_df = pd.read_csv(edge_path_c)
+            print(f"[Checkpoint] Using COUNT as edge weight type")
+        elif edge_weight_type == "both":
+            edge_df_l = pd.read_csv(edge_path_l)
+            edge_df_c = pd.read_csv(edge_path_c)
+            # Merge the two edge datasets
+            edge_df = pd.merge(edge_df_l, edge_df_c, on=['i', 'j'], suffixes=('_l', '_c'))
+            print(f"[Checkpoint] Using BOTH length and count as edge weights")
 
         print(f"[Checkpoint] Starting remove_nodes_and_create_data")
         
@@ -132,79 +145,67 @@ class GraphDataProcessor:
         after_nodes = len(node_df)
         print(f"[Checkpoint] Removed {before_nodes - after_nodes} churned users from node/label data")
 
-        # Step 3: Map edge lists from index to USR
-        # Process call graph
-        edge_call_df['i'] = edge_call_df['i'].map(index_to_usr)
-        edge_call_df['j'] = edge_call_df['j'].map(index_to_usr)
-        
-        # Process location graph
-        edge_loc_df['i'] = edge_loc_df['i'].map(index_to_usr)
-        edge_loc_df['j'] = edge_loc_df['j'].map(index_to_usr)
+        # Step 3: Map edge list from index to USR
+        edge_df['i'] = edge_df['i'].map(index_to_usr)
+        edge_df['j'] = edge_df['j'].map(index_to_usr)
 
         # Step 4: Filter out edges with churners
-        before_call_edges = len(edge_call_df)
-        edge_call_df = edge_call_df[~edge_call_df['i'].isin(churner_set_m1) & ~edge_call_df['j'].isin(churner_set_m1)]
-        after_call_edges = len(edge_call_df)
-        print(f"[Checkpoint] Removed {before_call_edges - after_call_edges} call edges involving churners")
-
-        before_loc_edges = len(edge_loc_df)
-        edge_loc_df = edge_loc_df[~edge_loc_df['i'].isin(churner_set_m1) & ~edge_loc_df['j'].isin(churner_set_m1)]
-        after_loc_edges = len(edge_loc_df)
-        print(f"[Checkpoint] Removed {before_loc_edges - after_loc_edges} location edges involving churners")
+        before_edges = len(edge_df)
+        edge_df = edge_df[~edge_df['i'].isin(churner_set_m1) & ~edge_df['j'].isin(churner_set_m1)]
+        after_edges = len(edge_df)
+        print(f"[Checkpoint] Removed {before_edges - after_edges} edges involving churners")
 
         # Step 5: Map remaining USRs to new 0-based indices
         usr_list_new = node_df['USR'].tolist()
         usr_to_index = {usr: idx for idx, usr in enumerate(usr_list_new)}
         print(f"[Checkpoint] Created mapping for {len(usr_to_index)} remaining users")
 
-        # Step 6: Convert edge lists from USR to index and extract edge weights
-        # Process call graph
-        mapped_call_i = edge_call_df['i'].map(usr_to_index)
-        mapped_call_j = edge_call_df['j'].map(usr_to_index)
-        edge_call_weights = edge_call_df['x'].values if 'x' in edge_call_df.columns else np.ones(len(mapped_call_i))
+        # Step 6: Convert edge list from USR to index and extract edge weights
+        mapped_i = edge_df['i'].map(usr_to_index)
+        mapped_j = edge_df['j'].map(usr_to_index)
         
-        # Process location graph
-        mapped_loc_i = edge_loc_df['i'].map(usr_to_index)
-        mapped_loc_j = edge_loc_df['j'].map(usr_to_index)
-        edge_loc_weights = edge_loc_df['x'].values if 'x' in edge_loc_df.columns else np.ones(len(mapped_loc_i))
+        # Extract edge weights based on weight type
+        if edge_weight_type == "length":
+            edge_weights = edge_df['x'].values if 'x' in edge_df.columns else np.ones(len(mapped_i))
+            print(f"[Checkpoint] Extracted length edge weights with min={edge_weights.min()}, max={edge_weights.max()}")
+        elif edge_weight_type == "count":
+            edge_weights = edge_df['x'].values if 'x' in edge_df.columns else np.ones(len(mapped_i))
+            print(f"[Checkpoint] Extracted count edge weights with min={edge_weights.min()}, max={edge_weights.max()}")
+        elif edge_weight_type == "both":
+            # For "both" we could either combine the weights or use them separately
+            # Here we'll combine them by adding a normalized version of each
+            edge_weights_l = edge_df['x_l'].values
+            edge_weights_c = edge_df['x_c'].values
+            
+            # Normalize each set of weights
+            edge_weights_l = edge_weights_l / (edge_weights_l.max() or 1.0)
+            edge_weights_c = edge_weights_c / (edge_weights_c.max() or 1.0)
+            
+            # Combine weights (you could also multiply or use other combinations)
+            edge_weights = edge_weights_l + edge_weights_c
+            print(f"[Checkpoint] Combined edge weights with min={edge_weights.min()}, max={edge_weights.max()}")
 
-        print(f"[Checkpoint] Extracted call edge weights with min={edge_call_weights.min() if len(edge_call_weights) > 0 else 'N/A'}, max={edge_call_weights.max() if len(edge_call_weights) > 0 else 'N/A'}")
-        print(f"[Checkpoint] Extracted location edge weights with min={edge_loc_weights.min() if len(edge_loc_weights) > 0 else 'N/A'}, max={edge_loc_weights.max() if len(edge_loc_weights) > 0 else 'N/A'}")
+        missing_i = mapped_i.isna().sum()
+        missing_j = mapped_j.isna().sum()
+        print(f"[Checkpoint] Missing i mappings: {missing_i}, Missing j mappings: {missing_j}")
 
         # Filter out any edges with NA mappings
-        valid_call_edges = ~(mapped_call_i.isna() | mapped_call_j.isna())
-        mapped_call_i = mapped_call_i[valid_call_edges].values
-        mapped_call_j = mapped_call_j[valid_call_edges].values
-        edge_call_weights = edge_call_weights[valid_call_edges]
-
-        valid_loc_edges = ~(mapped_loc_i.isna() | mapped_loc_j.isna())
-        mapped_loc_i = mapped_loc_i[valid_loc_edges].values
-        mapped_loc_j = mapped_loc_j[valid_loc_edges].values
-        edge_loc_weights = edge_loc_weights[valid_loc_edges]
+        valid_edges = ~(mapped_i.isna() | mapped_j.isna())
+        mapped_i = mapped_i[valid_edges].values
+        mapped_j = mapped_j[valid_edges].values
+        edge_weights = edge_weights[valid_edges]
 
         # Create edge indices and weights for undirected graph
-        # For call graph
-        edge_call_index_0 = torch.tensor([mapped_call_i, mapped_call_j], dtype=torch.long)
-        edge_call_index_1 = torch.tensor([mapped_call_j, mapped_call_i], dtype=torch.long)
-        edge_call_index = torch.cat([edge_call_index_0, edge_call_index_1], dim=1)
+        edge_index_0 = torch.tensor([mapped_i, mapped_j], dtype=torch.long)
+        edge_index_1 = torch.tensor([mapped_j, mapped_i], dtype=torch.long)
+        edge_index = torch.cat([edge_index_0, edge_index_1], dim=1)
         
-        edge_call_weight_0 = torch.tensor(edge_call_weights, dtype=torch.float)
-        edge_call_weight_1 = torch.tensor(edge_call_weights, dtype=torch.float)
-        edge_call_weight = torch.cat([edge_call_weight_0, edge_call_weight_1], dim=0)
+        edge_weight_0 = torch.tensor(edge_weights, dtype=torch.float)
+        edge_weight_1 = torch.tensor(edge_weights, dtype=torch.float)
+        edge_weight = torch.cat([edge_weight_0, edge_weight_1], dim=0)
         
-        # For location graph
-        edge_loc_index_0 = torch.tensor([mapped_loc_i, mapped_loc_j], dtype=torch.long)
-        edge_loc_index_1 = torch.tensor([mapped_loc_j, mapped_loc_i], dtype=torch.long)
-        edge_loc_index = torch.cat([edge_loc_index_0, edge_loc_index_1], dim=1)
-        
-        edge_loc_weight_0 = torch.tensor(edge_loc_weights, dtype=torch.float)
-        edge_loc_weight_1 = torch.tensor(edge_loc_weights, dtype=torch.float)
-        edge_loc_weight = torch.cat([edge_loc_weight_0, edge_loc_weight_1], dim=0)
-        
-        print(f"[Checkpoint] Created undirected call edge index with shape: {edge_call_index.shape}")
-        print(f"[Checkpoint] Created call edge weights with shape: {edge_call_weight.shape}")
-        print(f"[Checkpoint] Created undirected location edge index with shape: {edge_loc_index.shape}")
-        print(f"[Checkpoint] Created location edge weights with shape: {edge_loc_weight.shape}")
+        print(f"[Checkpoint] Created undirected edge index with shape: {edge_index.shape}")
+        print(f"[Checkpoint] Created edge weights with shape: {edge_weight.shape}")
 
         # Step 7: Prepare node features
         feature_df = node_df.drop(columns=['USR', 'churn'], errors='ignore')
@@ -220,20 +221,17 @@ class GraphDataProcessor:
         print(f"[Checkpoint] Label tensor shape: {y.shape}")
         print(f"[Checkpoint] Label distribution: {torch.bincount(y)}")
 
-        # Step 9: Create and return PyG Data object with edge indices and weights for both graphs
+        # Step 9: Create and return PyG Data object with edge weights
         data = Data(
             x=x, 
-            edge_index_call=edge_call_index,
-            edge_attr_call=edge_call_weight,
-            edge_index_loc=edge_loc_index,
-            edge_attr_loc=edge_loc_weight,
+            edge_index=edge_index, 
+            edge_attr=edge_weight,  # Add edge weights as edge_attr
             y=y, 
             num_nodes=x.shape[0], 
-            num_edges_call=edge_call_index.shape[1],
-            num_edges_loc=edge_loc_index.shape[1],
+            num_edges=edge_index.shape[1], 
             num_features=x.shape[1]
         )
-        print(f"[Checkpoint] Created Data object with {data.num_nodes} nodes, {data.num_edges_call} call edges, {data.num_edges_loc} location edges, {data.num_features} features")
+        print(f"[Checkpoint] Created Data object with {data.num_nodes} nodes, {data.num_edges} edges, {data.num_features} features, and edge weights")
 
         return data
 
@@ -246,10 +244,10 @@ class GraphDataProcessor:
         print(f"[Checkpoint] Class distribution - Positives: {num_pos}, Negatives: {num_neg}")
         return num_pos, num_neg
 
-class EnhancedDualGCN(nn.Module):
+class EnhancedGCN(nn.Module):
     def __init__(self, input_dim, embedding_dim, hidden_channels, num_layers, num_nodes, dropout_rate=Config.DROPOUT_RATE):
         super().__init__()
-        print(f"[Checkpoint] Initializing EnhancedDualGCN with {input_dim} input features, {embedding_dim} embedding dim, {hidden_channels} hidden channels, {num_layers} layers")
+        print(f"[Checkpoint] Initializing EnhancedGCN with {input_dim} input features, {embedding_dim} embedding dim, {hidden_channels} hidden channels, {num_layers} layers")
         
         # Initialize weights with smaller values to prevent exploding gradients
         self.embedding = nn.Embedding(num_nodes, embedding_dim)
@@ -261,37 +259,25 @@ class EnhancedDualGCN(nn.Module):
         self.combine = nn.Linear(embedding_dim * 2, hidden_channels)
         nn.init.xavier_uniform_(self.combine.weight, gain=0.1)
         
-        # Two sets of GCN layers for call and location graphs
-        self.call_convs = nn.ModuleList()
-        self.loc_convs = nn.ModuleList()
-        
+        self.convs = nn.ModuleList()
         for i in range(num_layers):
-            call_conv = GCNConv(hidden_channels, hidden_channels)
-            loc_conv = GCNConv(hidden_channels, hidden_channels)
+            conv = GCNConv(hidden_channels, hidden_channels)
             # Initialize GCN layers with appropriate initialization
-            nn.init.xavier_uniform_(call_conv.lin.weight, gain=0.1)
-            nn.init.xavier_uniform_(loc_conv.lin.weight, gain=0.1)
-            self.call_convs.append(call_conv)
-            self.loc_convs.append(loc_conv)
+            nn.init.xavier_uniform_(conv.lin.weight, gain=0.1)
+            self.convs.append(conv)
             
-        # Layer to combine outputs from both graphs
-        self.fusion = nn.Linear(hidden_channels * 2, hidden_channels)
-        nn.init.xavier_uniform_(self.fusion.weight, gain=0.1)
-        
         self.lin = nn.Linear(hidden_channels, 1)
         nn.init.xavier_uniform_(self.lin.weight, gain=0.1)
         
         self.dropout_rate = dropout_rate
         
         # Add BatchNorm to help with training stability
-        self.batch_norm_call = nn.BatchNorm1d(hidden_channels)
-        self.batch_norm_loc = nn.BatchNorm1d(hidden_channels)
-        self.batch_norm_fusion = nn.BatchNorm1d(hidden_channels)
+        self.batch_norm = nn.BatchNorm1d(hidden_channels)
         
         total_params = sum(p.numel() for p in self.parameters())
         print(f"[Checkpoint] Total parameters: {total_params}")
 
-    def forward(self, x, edge_index_call, edge_weight_call, edge_index_loc, edge_weight_loc):
+    def forward(self, x, edge_index, edge_weight=None):
         # Input validation
         if torch.isnan(x).any():
             print("[Checkpoint] WARNING: NaN detected in input features")
@@ -302,46 +288,24 @@ class EnhancedDualGCN(nn.Module):
         feature_emb = self.feature_transform(x)
         
         combined = torch.cat([node_emb, feature_emb], dim=1)
-        h = F.relu(self.combine(combined))
+        h = F.relu(self.combine(combined))  # Using ReLU for more stability than ELU
         h = F.dropout(h, p=self.dropout_rate, training=self.training)
         
-        # Process call graph
-        h_call = h.clone()
-        for conv in self.call_convs:
-            h_call_new = conv(h_call, edge_index_call, edge_weight_call)
-            h_call_new = F.relu(h_call_new)
-            h_call_new = self.batch_norm_call(h_call_new)
-            h_call_new = F.dropout(h_call_new, p=self.dropout_rate, training=self.training)
+        for conv in self.convs:
+            # GCNConv in PyG has edge_weight as a named parameter, not a positional one
+            h_new = conv(h, edge_index, edge_weight)
+            h_new = F.relu(h_new)  # Using ReLU for stability
+            h_new = self.batch_norm(h_new)  # Apply batch normalization
+            h_new = F.dropout(h_new, p=self.dropout_rate, training=self.training)
             
-            # Add residual connection
-            if h_call.shape == h_call_new.shape:
-                h_call = h_call_new + h_call
+            # Add residual connection for better gradient flow
+            if h.shape == h_new.shape:
+                h = h_new + h
             else:
-                h_call = h_call_new
-        
-        # Process location graph
-        h_loc = h.clone()
-        for conv in self.loc_convs:
-            h_loc_new = conv(h_loc, edge_index_loc, edge_weight_loc)
-            h_loc_new = F.relu(h_loc_new)
-            h_loc_new = self.batch_norm_loc(h_loc_new)
-            h_loc_new = F.dropout(h_loc_new, p=self.dropout_rate, training=self.training)
+                h = h_new
             
-            # Add residual connection
-            if h_loc.shape == h_loc_new.shape:
-                h_loc = h_loc_new + h_loc
-            else:
-                h_loc = h_loc_new
-        
-        # Fusion of call and location embeddings
-        h_fusion = torch.cat([h_call, h_loc], dim=1)
-        h_fusion = self.fusion(h_fusion)
-        h_fusion = F.relu(h_fusion)
-        h_fusion = self.batch_norm_fusion(h_fusion)
-        h_fusion = F.dropout(h_fusion, p=self.dropout_rate, training=self.training)
-        
-        # Final prediction
-        out = self.lin(h_fusion)
+        # Ensure output doesn't have extreme values
+        out = self.lin(h)
         return torch.clamp(out, min=-10, max=10)  # Prevent extreme values
 
 class Trainer:
@@ -355,22 +319,20 @@ class Trainer:
         optimizer.zero_grad()
         
         x = data.x.to(self.device)
-        edge_index_call = data.edge_index_call.to(self.device)
-        edge_weight_call = data.edge_attr_call.to(self.device)
-        edge_index_loc = data.edge_index_loc.to(self.device)
-        edge_weight_loc = data.edge_attr_loc.to(self.device)
+        edge_index = data.edge_index.to(self.device)
         y = data.y.float().to(self.device)
         
-        # Normalize edge weights to prevent numerical issues
-        if edge_weight_call.max() > 1000:
-            print("[Checkpoint] Normalizing large call edge weights")
-            edge_weight_call = edge_weight_call / edge_weight_call.max()
-            
-        if edge_weight_loc.max() > 1000:
-            print("[Checkpoint] Normalizing large location edge weights")
-            edge_weight_loc = edge_weight_loc / edge_weight_loc.max()
+        # Ensure edge_attr is properly accessed and handled
+        edge_weight = None
+        if hasattr(data, 'edge_attr'):
+            if data.edge_attr is not None:
+                edge_weight = data.edge_attr.to(self.device)
+                # Normalize edge weights to prevent numerical issues
+                if edge_weight.max() > 1000:
+                    print("[Checkpoint] Normalizing large edge weights")
+                    edge_weight = edge_weight / edge_weight.max()
         
-        out = self.model(x, edge_index_call, edge_weight_call, edge_index_loc, edge_weight_loc)
+        out = self.model(x, edge_index, edge_weight)
         loss = self.criterion(out.squeeze(), y)
         
         if not torch.isfinite(loss).all():
@@ -391,21 +353,20 @@ class Trainer:
         
         with torch.no_grad():
             x = data.x.to(self.device)
-            edge_index_call = data.edge_index_call.to(self.device)
-            edge_weight_call = data.edge_attr_call.to(self.device)
-            edge_index_loc = data.edge_index_loc.to(self.device)
-            edge_weight_loc = data.edge_attr_loc.to(self.device)
+            edge_index = data.edge_index.to(self.device)
             y = data.y.float().to(self.device)
             
-            # Normalize edge weights to prevent numerical issues
-            if edge_weight_call.max() > 1000:
-                edge_weight_call = edge_weight_call / edge_weight_call.max()
-                
-            if edge_weight_loc.max() > 1000:
-                edge_weight_loc = edge_weight_loc / edge_weight_loc.max()
+            # Ensure edge_attr is properly accessed and handled
+            edge_weight = None
+            if hasattr(data, 'edge_attr'):
+                if data.edge_attr is not None:
+                    edge_weight = data.edge_attr.to(self.device)
+                    # Normalize edge weights to prevent numerical issues
+                    if edge_weight.max() > 1000:
+                        edge_weight = edge_weight / edge_weight.max()
             
             try:
-                out = self.model(x, edge_index_call, edge_weight_call, edge_index_loc, edge_weight_loc)
+                out = self.model(x, edge_index, edge_weight)
                 loss = self.criterion(out.squeeze(), y)
 
                 # Handle potential NaN/Inf values
@@ -418,15 +379,27 @@ class Trainer:
                 
                 y_true = data.y.cpu().numpy()
 
-                auc = roc_auc_score(y_true, probs)
-                lift_005 = self.calculate_lift(y_true, probs, 0.005)
-                lift_05 = self.calculate_lift(y_true, probs, 0.05)
+                # Calculate AUC
+                auc_roc = roc_auc_score(y_true, probs)
+                
+                # Calculate AUPRC
+                precision, recall, _ = precision_recall_curve(y_true, probs)
+                auprc = auc(recall, precision)
+                
+                # Calculate various lift metrics
+                lift_0005 = self.calculate_lift(y_true, probs, 0.005)
+                lift_001 = self.calculate_lift(y_true, probs, 0.01)
+                lift_005 = self.calculate_lift(y_true, probs, 0.05)
+                lift_01 = self.calculate_lift(y_true, probs, 0.1)
 
                 metrics = {
                     'loss': loss.item(),
-                    'auc': auc,
+                    'auc': auc_roc,
+                    'auprc': auprc,
+                    'lift_0005': lift_0005,
+                    'lift_001': lift_001,
                     'lift_005': lift_005,
-                    'lift_05': lift_05,
+                    'lift_01': lift_01,
                     'probs': probs,
                     'labels': y_true
                 }
@@ -435,11 +408,17 @@ class Trainer:
                     try:
                         emp_output = empChurn(probs, y_true, return_output=True, print_output=False)
                         metrics['emp'] = float(emp_output.EMP)
+                        metrics['hand'] = float(emp_output.Hand)
+                        metrics['mp'] = float(emp_output.MP)
                     except Exception as e:
-                        print(f"[Checkpoint] Error calculating EMP: {str(e)}")
+                        print(f"[Checkpoint] Error calculating EMP metrics: {str(e)}")
                         metrics['emp'] = 0.0
+                        metrics['hand'] = 0.0
+                        metrics['mp'] = 0.0
                 else:
                     metrics['emp'] = 0.0
+                    metrics['hand'] = 0.0
+                    metrics['mp'] = 0.0
                 
                 return metrics
             except Exception as e:
@@ -448,9 +427,14 @@ class Trainer:
                 return {
                     'loss': float('inf'),
                     'auc': 0.5,
+                    'auprc': 0.5,
+                    'lift_0005': 1.0,
+                    'lift_001': 1.0,
                     'lift_005': 1.0,
-                    'lift_05': 1.0,
+                    'lift_01': 1.0,
                     'emp': 0.0,
+                    'hand': 0.0,
+                    'mp': 0.0,
                     'probs': np.array([0.5]),
                     'labels': np.array([0])
                 }
@@ -476,37 +460,41 @@ class Trainer:
             return 1.0
 
 class Experiment:
-    def __init__(self):
-        print("[Checkpoint] ====== Starting Experiment setup ======")
+    def __init__(self, edge_weight_type="length"):
+        print(f"[Checkpoint] ====== Starting Experiment setup with edge weight type: {edge_weight_type} ======")
         
+        self.edge_weight_type = edge_weight_type
         self.churned_users = GraphDataProcessor.load_churned_users()
 
         print("[Checkpoint] Loading training data with RMF features")
         self.data_train = GraphDataProcessor.remove_nodes_and_create_data(
-            edge_call_path=Config.TRAIN_EDGE_CALL, 
-            edge_loc_path=Config.TRAIN_EDGE_LOC,
+            edge_path_l=Config.TRAIN_EDGE_L, 
+            edge_path_c=Config.TRAIN_EDGE_C,
             label_path=Config.TRAIN_LABEL,
             rmf_path=Config.TRAIN_RMF,
-            churner_set_m1=self.churned_users
+            churner_set_m1=self.churned_users,
+            edge_weight_type=self.edge_weight_type
         )
         GraphDataProcessor.get_class_distribution(self.data_train)
         
         print("[Checkpoint] Loading validation data with RMF features")
         self.data_val = GraphDataProcessor.remove_nodes_and_create_data(
-            edge_call_path=Config.VAL_EDGE_CALL,
-            edge_loc_path=Config.VAL_EDGE_LOC,
+            edge_path_l=Config.VAL_EDGE_L, 
+            edge_path_c=Config.VAL_EDGE_C,
             label_path=Config.VAL_LABEL,
             rmf_path=Config.VAL_RMF,
-            churner_set_m1=self.churned_users
+            churner_set_m1=self.churned_users,
+            edge_weight_type=self.edge_weight_type
         )
 
         print("[Checkpoint] Loading test data with RMF features")
         self.data_test = GraphDataProcessor.remove_nodes_and_create_data(
-            edge_call_path=Config.TEST_EDGE_CALL,
-            edge_loc_path=Config.TEST_EDGE_LOC,
+            edge_path_l=Config.TEST_EDGE_L, 
+            edge_path_c=Config.TEST_EDGE_C,
             label_path=Config.TEST_LABEL,
             rmf_path=Config.TEST_RMF,
-            churner_set_m1=self.churned_users
+            churner_set_m1=self.churned_users,
+            edge_weight_type=self.edge_weight_type
         )
         
         print("[Checkpoint] Experiment initialization complete")
@@ -514,9 +502,10 @@ class Experiment:
     def run_hyperparameter_tuning(self):
         print("[Checkpoint] ====== Starting Hyperparameter Tuning ======")
         
-        best_metrics = {'val_auc': 0}
-        best_models = {'auc': None}
-        best_configs = {'auc': None}
+        # Only track best model by AUPRC now
+        best_val_auprc = 0
+        best_model = None
+        best_config = None
         
         num_features = self.data_train.x.shape[1]
         print(f"[Checkpoint] Number of input features: {num_features}")
@@ -536,7 +525,7 @@ class Experiment:
                             config_num += 1
 
                             try:
-                                model = EnhancedDualGCN(
+                                model = EnhancedGCN(
                                     input_dim=num_features,
                                     embedding_dim=Config.EMBEDDING_DIM,
                                     hidden_channels=hidden, 
@@ -553,7 +542,7 @@ class Experiment:
                                     weight_decay=1e-5  # Add weight decay
                                 )
 
-                                best_val_auc = 0
+                                current_best_val_auprc = 0
                                 epochs_no_improve = 0
                                 best_epoch = 0
                                 nan_epochs = 0  # Count consecutive NaN epochs
@@ -577,45 +566,69 @@ class Experiment:
 
                                     if epoch % 5 == 0 and not np.isnan(loss):
                                         val_metrics = trainer.evaluate(self.data_val)
-                                        print(f"[Checkpoint] Validation metrics - AUC: {val_metrics['auc']:.6f}, Loss: {val_metrics['loss']:.6f}")
-                                        print(f"[Checkpoint] Validation metrics - Lift@0.5%: {val_metrics['lift_005']:.6f}, Lift@5%: {val_metrics['lift_05']:.6f}")
+                                        print(f"[Checkpoint] Validation metrics - AUC: {val_metrics['auc']:.6f}, AUPRC: {val_metrics['auprc']:.6f}, Loss: {val_metrics['loss']:.6f}")
+                                        print(f"[Checkpoint] Validation lifts - @0.5%: {val_metrics['lift_0005']:.6f}, @1%: {val_metrics['lift_001']:.6f}, @5%: {val_metrics['lift_005']:.6f}, @10%: {val_metrics['lift_01']:.6f}")
 
-                                        if val_metrics['auc'] > best_metrics['val_auc']:
-                                            print(f"[Checkpoint] New best model found! AUC: {val_metrics['auc']:.6f}")
-                                            best_metrics['val_auc'] = val_metrics['auc']
-                                            best_models['auc'] = deepcopy(model)
-                                            best_configs['auc'] = (lr, hidden, num_layers, alpha, gamma)
+                                        # Update best model based on AUPRC improvement
+                                        if val_metrics['auprc'] > best_val_auprc:
+                                            print(f"[Checkpoint] New best model found! AUPRC: {val_metrics['auprc']:.6f} (previous best: {best_val_auprc:.6f})")
+                                            best_val_auprc = val_metrics['auprc']
+                                            best_model = deepcopy(model)
+                                            best_config = (lr, hidden, num_layers, alpha, gamma)
                                         
-                                        if val_metrics['auc'] > best_val_auc:
-                                            best_val_auc = val_metrics['auc']
+                                        # Early stopping based on AUPRC
+                                        if val_metrics['auprc'] > current_best_val_auprc:
+                                            current_best_val_auprc = val_metrics['auprc']
                                             best_epoch = epoch
                                             epochs_no_improve = 0
                                         else:
                                             epochs_no_improve += 1
                                             if epochs_no_improve >= Config.PATIENCE:
-                                                print(f"[Checkpoint] Early stopping at epoch {epoch}")
+                                                print(f"[Checkpoint] Early stopping at epoch {epoch} (no AUPRC improvement for {Config.PATIENCE} evaluations)")
                                                 break
                                 
-                                print(f"[Checkpoint] Configuration completed. Best AUC: {best_val_auc:.6f}")
+                                print(f"[Checkpoint] Configuration completed. Best AUPRC: {current_best_val_auprc:.6f}")
                             except Exception as e:
                                 print(f"[Checkpoint] Error during configuration {config_num-1}: {str(e)}")
                                 print("[Checkpoint] Skipping to next configuration")
                                 continue
 
         print("\n[Checkpoint] ====== Final Evaluation ======")
-        for metric, model in best_models.items():
-            if model is not None:
-                print(f"[Checkpoint] Evaluating best model by {metric}")
-                test_metrics = Trainer(model, Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
-                
-                config = best_configs[metric]
-                print(f"[Checkpoint] Best config (lr={config[0]}, hidden={config[1]}, layers={config[2]}, alpha={config[3]}, gamma={config[4]}):")
-                print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
-                print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
-                print(f"[Checkpoint] Test Lift@0.5%={test_metrics['lift_005']:.6f}")
-                print(f"[Checkpoint] Test Lift@5%={test_metrics['lift_05']:.6f}")
+        
+        # Evaluate the best model
+        if best_model is not None:
+            print(f"[Checkpoint] Evaluating best model")
+            test_metrics = Trainer(best_model, Config.DEVICE).evaluate(self.data_test, calculate_emp=True)
+            
+            print(f"[Checkpoint] Best config (lr={best_config[0]}, hidden={best_config[1]}, layers={best_config[2]}, alpha={best_config[3]}, gamma={best_config[4]}):")
+            print(f"[Checkpoint] Test AUPRC={test_metrics['auprc']:.6f}")
+            print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
+            print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
+            print(f"[Checkpoint] Test Hand={test_metrics['hand']:.6f}")
+            print(f"[Checkpoint] Test MP={test_metrics['mp']:.6f}")
+            print(f"[Checkpoint] Test Lift@0.5%={test_metrics['lift_0005']:.6f}")
+            print(f"[Checkpoint] Test Lift@1%={test_metrics['lift_001']:.6f}")
+            print(f"[Checkpoint] Test Lift@5%={test_metrics['lift_005']:.6f}")
+            print(f"[Checkpoint] Test Lift@10%={test_metrics['lift_01']:.6f}")
 
-        return best_models
+            # Save model predictions for further analysis
+            try:
+                print("\n[Checkpoint] Saving best model predictions for analysis")
+                
+                # Create DataFrame with predictions
+                predictions_df = pd.DataFrame({
+                    'true_labels': test_metrics['labels'],
+                    'predicted_probs': test_metrics['probs']
+                })
+                
+                # Save to CSV
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                predictions_df.to_csv(f"best_model_predictions_{timestamp}.csv", index=False)
+                print(f"[Checkpoint] Predictions saved as best_model_predictions_{timestamp}.csv")
+            except Exception as e:
+                print(f"[Checkpoint] Error saving predictions: {str(e)}")
+
+        return best_model
 
 if __name__ == "__main__":
     # Set manual seeds for reproducibility
@@ -625,7 +638,7 @@ if __name__ == "__main__":
     print("[Checkpoint] ====== Script Started ======")
     try:
         experiment = Experiment()
-        best_models = experiment.run_hyperparameter_tuning()
+        best_model = experiment.run_hyperparameter_tuning()
         print("[Checkpoint] ====== Script Finished ======")
     except Exception as e:
         print(f"[Checkpoint] CRITICAL ERROR: {str(e)}")
