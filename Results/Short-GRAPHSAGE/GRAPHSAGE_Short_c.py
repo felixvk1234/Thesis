@@ -19,7 +19,7 @@ print("[Checkpoint] All libraries imported successfully.")
 
 # Configuration
 class Config:
-    DATA_DIR = r"/Users/lujingxu/Desktop/Master_thesis/Data/Data_churn/Transformed_data/MobileVikings"
+    DATA_DIR = r"/data/leuven/373/vsc37331/Mobile_Vikings/"
     TRAIN_EDGE = "SN_M2_c.csv"
     TRAIN_LABEL = "L_M3.csv"
     TRAIN_RMF = "train_rmf.csv"
