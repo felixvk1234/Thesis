@@ -408,16 +408,13 @@ class Trainer:
                     try:
                         emp_output = empChurn(probs, y_true, return_output=True, print_output=False)
                         metrics['emp'] = float(emp_output.EMP)
-                        metrics['hand'] = float(emp_output.Hand)
                         metrics['mp'] = float(emp_output.MP)
                     except Exception as e:
                         print(f"[Checkpoint] Error calculating EMP metrics: {str(e)}")
                         metrics['emp'] = 0.0
-                        metrics['hand'] = 0.0
                         metrics['mp'] = 0.0
                 else:
                     metrics['emp'] = 0.0
-                    metrics['hand'] = 0.0
                     metrics['mp'] = 0.0
                 
                 return metrics
@@ -433,7 +430,6 @@ class Trainer:
                     'lift_005': 1.0,
                     'lift_01': 1.0,
                     'emp': 0.0,
-                    'hand': 0.0,
                     'mp': 0.0,
                     'probs': np.array([0.5]),
                     'labels': np.array([0])
@@ -604,7 +600,6 @@ class Experiment:
             print(f"[Checkpoint] Test AUPRC={test_metrics['auprc']:.6f}")
             print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
             print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
-            print(f"[Checkpoint] Test Hand={test_metrics['hand']:.6f}")
             print(f"[Checkpoint] Test MP={test_metrics['mp']:.6f}")
             print(f"[Checkpoint] Test Lift@0.5%={test_metrics['lift_0005']:.6f}")
             print(f"[Checkpoint] Test Lift@1%={test_metrics['lift_001']:.6f}")
