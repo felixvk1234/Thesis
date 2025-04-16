@@ -322,7 +322,7 @@ class Trainer:
         edge_index = data.edge_index.to(self.device)
         y = data.y.float().to(self.device)
         
-        # Ensure edge_attr is properly accessed and handled
+        # Get edge weights from edge_attr
         edge_weight = None
         if hasattr(data, 'edge_attr'):
             if data.edge_attr is not None:
@@ -332,6 +332,7 @@ class Trainer:
                     print("[Checkpoint] Normalizing large edge weights")
                     edge_weight = edge_weight / edge_weight.max()
         
+        # Use edge_weight in forward pass
         out = self.model(x, edge_index, edge_weight)
         loss = self.criterion(out.squeeze(), y)
         
@@ -356,7 +357,7 @@ class Trainer:
             edge_index = data.edge_index.to(self.device)
             y = data.y.float().to(self.device)
             
-            # Ensure edge_attr is properly accessed and handled
+            # Get edge weights from edge_attr
             edge_weight = None
             if hasattr(data, 'edge_attr'):
                 if data.edge_attr is not None:
@@ -366,6 +367,7 @@ class Trainer:
                         edge_weight = edge_weight / edge_weight.max()
             
             try:
+                # Use edge_weight in forward pass
                 out = self.model(x, edge_index, edge_weight)
                 loss = self.criterion(out.squeeze(), y)
 
@@ -456,7 +458,7 @@ class Trainer:
             return 1.0
 
 class Experiment:
-    def __init__(self, edge_weight_type="length"):
+    def __init__(self, edge_weight_type="both"):  # Default to "both" edge weight type
         print(f"[Checkpoint] ====== Starting Experiment setup with edge weight type: {edge_weight_type} ======")
         
         self.edge_weight_type = edge_weight_type
