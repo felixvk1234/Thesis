@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from torch_geometric.data import Data
 from torch.nn import Linear
+from torch_geometric.nn import GATConv  # Changed from SAGEConv to GATConv
 from torch_geometric.nn import BatchNorm
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,9 +14,6 @@ from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from sklearn.preprocessing import StandardScaler
 from EMP.metrics import empCreditScoring, empChurn
 from copy import deepcopy
-from torch_geometric.nn import GATConv
-
-
 
 print("[Checkpoint] All libraries imported successfully.")
 
@@ -43,6 +41,9 @@ class Config:
     FOCAL_ALPHAS = [0.5, 0.75]   # Prioritize positive class more
     FOCAL_GAMMAS = [1.0, 2.0]    # Focus on hard examples more
     CLIP_GRAD_NORM = 1.0
+    # GAT-specific hyperparameters
+    HEADS = [4, 8]               # Number of attention heads
+    CONCAT = [True, False]       # Whether to concatenate or average multi-head attention outputs
 
 
 print(f"[Checkpoint] Configuration initialized")
@@ -196,28 +197,31 @@ class GraphDataProcessor:
         num_neg = (y == 0).sum().item()
         print(f"[Checkpoint] Class distribution - Positives: {num_pos}, Negatives: {num_neg}")
         return num_pos, num_neg
-    
-class GraphAttentionNetwork(nn.Module):
-    def __init__(self, input_dim, embedding_dim, hidden_dim, num_nodes, num_layers, heads=8, dropout_rate=0.5):
+
+class GAT(nn.Module):
+    def __init__(self, input_dim, embedding_dim, hidden_dim, num_nodes, num_layers, 
+                 heads=8, concat=True, dropout_rate=Config.DROPOUT_RATE):
         """
-        Graph Attention Network with BatchNorm, ELU activation, and dropout.
+        GAT model with BatchNorm, ELU activation, and dropout.
 
         Args:
             input_dim (int): Dimension of input features
-            embedding_dim (int): Dimension of node embeddings
+            embedding_dim (int): Dimension of node embedding
             hidden_dim (int): Dimension of hidden layers
             num_nodes (int): Number of nodes in the graph
             num_layers (int): Number of GAT layers
             heads (int): Number of attention heads
+            concat (bool): Whether to concatenate or average multi-head attention
             dropout_rate (float): Dropout probability
         """
         super().__init__()
         print(f"[Checkpoint] Initializing GAT with {input_dim} input dim, "
-              f"{hidden_dim} hidden dim, {num_layers} layers, {heads} attention heads")
+              f"{hidden_dim} hidden dim, {num_layers} layers, "
+              f"{heads} heads, concat={concat}")
 
         self.dropout_rate = dropout_rate
         self.num_layers = num_layers
-        self.heads = heads
+        self.concat = concat
 
         # Node embedding
         self.embedding = nn.Embedding(num_nodes, embedding_dim)
@@ -231,38 +235,47 @@ class GraphAttentionNetwork(nn.Module):
         self.combine = nn.Linear(embedding_dim * 2, hidden_dim)
         nn.init.xavier_uniform_(self.combine.weight, gain=0.1)
 
-        # GAT layers
+        # GAT layers and BatchNorm
         self.convs = nn.ModuleList()
         self.bns = nn.ModuleList()
 
-        # First layer has different input dimension
+        # For the intermediate layers
         for i in range(num_layers):
-            # Using concat=False to maintain hidden_dim across all layers
-            # Each output feature dimension is hidden_dim
-            if i < num_layers - 1:
-                # Internal layers use multiple attention heads
-                conv = GATConv(
-                    hidden_dim, 
-                    hidden_dim // heads,  # Divide to maintain same dim after concat
-                    heads=heads, 
-                    concat=True,  # Concatenate the outputs of attention heads
+            # If concatenating heads, need to adjust input/output dimensions
+            if i == 0:
+                in_channels = hidden_dim
+            else:
+                in_channels = hidden_dim * heads if concat and i > 0 else hidden_dim
+            
+            # For the last layer, we'll use a single head to get a scalar output
+            if i == num_layers - 1:
+                out_channels = hidden_dim // heads if concat else hidden_dim
+                gat_layer = GATConv(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    heads=heads,
+                    concat=concat,
                     dropout=dropout_rate
                 )
             else:
-                # Final layer uses a single head for stability
-                conv = GATConv(
-                    hidden_dim, 
-                    hidden_dim, 
-                    heads=1, 
-                    concat=False,  # Don't concatenate for final layer
+                out_channels = hidden_dim
+                gat_layer = GATConv(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    heads=heads,
+                    concat=concat,
                     dropout=dropout_rate
                 )
             
-            self.convs.append(conv)
-            self.bns.append(BatchNorm(hidden_dim))
+            self.convs.append(gat_layer)
+            
+            # BatchNorm size depends on whether heads are concatenated
+            bn_dim = hidden_dim * heads if concat and i < num_layers - 1 else hidden_dim
+            self.bns.append(BatchNorm(bn_dim))
 
-        # Final linear output layer
-        self.lin = nn.Linear(hidden_dim, 1)
+        # Final output layer
+        final_dim = hidden_dim * heads if concat and num_layers > 0 else hidden_dim
+        self.lin = nn.Linear(final_dim, 1)
         nn.init.xavier_uniform_(self.lin.weight, gain=0.1)
 
         total_params = sum(p.numel() for p in self.parameters())
@@ -281,23 +294,21 @@ class GraphAttentionNetwork(nn.Module):
         h = F.relu(self.combine(h))
         h = F.dropout(h, p=self.dropout_rate, training=self.training)
 
-        # GNN layers
+        # GNN layers with residual connections when possible
         for i in range(self.num_layers):
-            h_new = self.convs[i](h, edge_index)
-            h_new = self.bns[i](h_new)
-            h_new = F.relu(h_new)
-            h_new = F.dropout(h_new, p=self.dropout_rate, training=self.training)
+            h_prev = h  # Store previous representation for residual connection
+            h = self.convs[i](h, edge_index)
+            h = self.bns[i](h)
+            h = F.relu(h)
+            h = F.dropout(h, p=self.dropout_rate, training=self.training)
             
-            # Add residual connection for better gradient flow
-            if h.shape == h_new.shape:
-                h = h_new + h
-            else:
-                h = h_new
+            # Add residual connection if dimensions match
+            if h_prev.shape == h.shape:
+                h = h + h_prev
 
         # Final prediction
         out = self.lin(h)
         return torch.clamp(out, min=-10, max=10)  # Prevent extreme values
-
 
 class GATTrainer:
     def __init__(self, model, device='cpu', alpha=0.25, gamma=2.0):
@@ -316,7 +327,7 @@ class GATTrainer:
         edge_index = data.edge_index.to(self.device)
         y = data.y.float().to(self.device)
         
-        # Forward pass
+        # Call model without edge weights
         out = self.model(x, edge_index)
         loss = self.criterion(out.squeeze(), y)
         
@@ -343,7 +354,7 @@ class GATTrainer:
             y = data.y.float().to(self.device)
             
             try:
-                # Forward pass
+                # Call model without edge weights
                 out = self.model(x, edge_index)
                 loss = self.criterion(out.squeeze(), y)
 
@@ -432,11 +443,10 @@ class GATTrainer:
         except Exception as e:
             print(f"[Checkpoint] Error calculating lift: {str(e)}")
             return 1.0
-
-
-class GATExperiment:
+        
+class Experiment:
     def __init__(self):
-        print("[Checkpoint] ====== Starting GAT Experiment setup ======")
+        print("[Checkpoint] ====== Starting Experiment setup ======")
         
         self.churned_users = GraphDataProcessor.load_churned_users()
 
@@ -465,15 +475,12 @@ class GATExperiment:
             churner_set_m1=self.churned_users
         )
         
-        print("[Checkpoint] GAT Experiment initialization complete")
+        print("[Checkpoint] Experiment initialization complete")
 
     def run_hyperparameter_tuning(self):
-        print("[Checkpoint] ====== Starting GAT Hyperparameter Tuning ======")
+        print("[Checkpoint] ====== Starting Hyperparameter Tuning ======")
         
-        # Configuration for GAT
-        GAT_HEADS = [4, 8]  # Number of attention heads to try
-        
-        # Only track best model by AUPRC 
+        # Only track best model by AUPRC now
         best_val_auprc = 0
         best_model = None
         best_config = None
@@ -481,101 +488,105 @@ class GATExperiment:
         num_features = self.data_train.x.shape[1]
         print(f"[Checkpoint] Number of input features: {num_features}")
 
-        print(f"[Checkpoint] Testing {len(Config.LEARNING_RATES)}×{len(Config.HIDDEN_CHANNELS)}×{len(Config.LAYERS)}×{len(GAT_HEADS)}×{len(Config.FOCAL_ALPHAS)}×{len(Config.FOCAL_GAMMAS)} combinations")
+        print(f"[Checkpoint] Testing {len(Config.LEARNING_RATES)}×{len(Config.HIDDEN_CHANNELS)}×{len(Config.LAYERS)}×{len(Config.FOCAL_ALPHAS)}×{len(Config.FOCAL_GAMMAS)}×{len(Config.HEADS)}×{len(Config.CONCAT)} combinations")
         
         config_num = 1
-        total_configs = len(Config.LEARNING_RATES) * len(Config.HIDDEN_CHANNELS) * len(Config.LAYERS) * len(GAT_HEADS) * len(Config.FOCAL_ALPHAS) * len(Config.FOCAL_GAMMAS)
+        total_configs = len(Config.LEARNING_RATES) * len(Config.HIDDEN_CHANNELS) * len(Config.LAYERS) * len(Config.FOCAL_ALPHAS) * len(Config.FOCAL_GAMMAS) * len(Config.HEADS) * len(Config.CONCAT)
         
         for lr in Config.LEARNING_RATES:
             for hidden in Config.HIDDEN_CHANNELS:
                 for num_layers in Config.LAYERS:
-                    for heads in GAT_HEADS:
-                        for alpha in Config.FOCAL_ALPHAS:
-                            for gamma in Config.FOCAL_GAMMAS:
-                                print(f"\n[Checkpoint] ====== Configuration {config_num}/{total_configs} ======")
-                                print(f"[Checkpoint] Training GAT with lr={lr}, hidden={hidden}, layers={num_layers}, heads={heads}, alpha={alpha}, gamma={gamma}")
-                                config_num += 1
+                    for alpha in Config.FOCAL_ALPHAS:
+                        for gamma in Config.FOCAL_GAMMAS:
+                            for heads in Config.HEADS:
+                                for concat in Config.CONCAT:
+                                    print(f"\n[Checkpoint] ====== Configuration {config_num}/{total_configs} ======")
+                                    print(f"[Checkpoint] Training with lr={lr}, hidden={hidden}, layers={num_layers}, alpha={alpha}, "
+                                          f"gamma={gamma}, heads={heads}, concat={concat}")
+                                    config_num += 1
 
-                                try:
-                                    model = GraphAttentionNetwork(
-                                        input_dim=num_features,
-                                        embedding_dim=Config.EMBEDDING_DIM,
-                                        hidden_dim=hidden, 
-                                        num_layers=num_layers,
-                                        num_nodes=self.data_train.num_nodes,
-                                        heads=heads,
-                                        dropout_rate=Config.DROPOUT_RATE
-                                    )
-                                    
-                                    trainer = GATTrainer(model, Config.DEVICE, alpha=alpha, gamma=gamma)
-                                    
-                                    # Use Adam with weight decay to prevent overfitting and improve stability
-                                    optimizer = torch.optim.Adam(
-                                        model.parameters(), 
-                                        lr=lr,
-                                        weight_decay=1e-5  # Add weight decay
-                                    )
-
-                                    current_best_val_auprc = 0
-                                    epochs_no_improve = 0
-                                    best_epoch = 0
-                                    nan_epochs = 0  # Count consecutive NaN epochs
-
-                                    print(f"[Checkpoint] Starting training for up to {Config.MAX_EPOCHS} epochs")
-                                    
-                                    for epoch in range(1, Config.MAX_EPOCHS + 1):
-                                        print(f"\n[Checkpoint] --- Epoch {epoch}/{Config.MAX_EPOCHS} ---")
+                                    try:
+                                        model = GAT(
+                                            input_dim=num_features,
+                                            embedding_dim=Config.EMBEDDING_DIM,
+                                            hidden_dim=hidden, 
+                                            num_layers=num_layers,
+                                            num_nodes=self.data_train.num_nodes,
+                                            heads=heads,
+                                            concat=concat,
+                                            dropout_rate=Config.DROPOUT_RATE
+                                        )
                                         
-                                        loss = trainer.train(self.data_train, optimizer)
+                                        trainer = GATTrainer(model, Config.DEVICE, alpha=alpha, gamma=gamma)
                                         
-                                        if np.isnan(loss):
-                                            nan_epochs += 1
-                                            print(f"[Checkpoint] NaN loss detected, nan_epochs={nan_epochs}")
-                                            if nan_epochs >= 3:  # Skip this configuration after 3 consecutive NaN epochs
-                                                print("[Checkpoint] Too many NaN epochs, skipping configuration")
-                                                break
-                                        else:
-                                            nan_epochs = 0  # Reset counter on successful epoch
-                                            print(f"[Checkpoint] Epoch {epoch} training loss: {loss:.6f}")
+                                        # Use Adam with weight decay to prevent overfitting and improve stability
+                                        optimizer = torch.optim.Adam(
+                                            model.parameters(), 
+                                            lr=lr,
+                                            weight_decay=1e-5  # Add weight decay
+                                        )
 
-                                        if epoch % 5 == 0 and not np.isnan(loss):
-                                            val_metrics = trainer.evaluate(self.data_val)
-                                            print(f"[Checkpoint] Validation metrics - AUC: {val_metrics['auc']:.6f}, AUPRC: {val_metrics['auprc']:.6f}, Loss: {val_metrics['loss']:.6f}")
-                                            print(f"[Checkpoint] Validation lifts - @0.5%: {val_metrics['lift_0005']:.6f}, @1%: {val_metrics['lift_001']:.6f}, @5%: {val_metrics['lift_005']:.6f}, @10%: {val_metrics['lift_01']:.6f}")
+                                        current_best_val_auprc = 0
+                                        epochs_no_improve = 0
+                                        best_epoch = 0
+                                        nan_epochs = 0  # Count consecutive NaN epochs
 
-                                            # Update best model based on AUPRC improvement
-                                            if val_metrics['auprc'] > best_val_auprc:
-                                                print(f"[Checkpoint] New best model found! AUPRC: {val_metrics['auprc']:.6f} (previous best: {best_val_auprc:.6f})")
-                                                best_val_auprc = val_metrics['auprc']
-                                                best_model = deepcopy(model)
-                                                best_config = (lr, hidden, num_layers, heads, alpha, gamma)
+                                        print(f"[Checkpoint] Starting training for up to {Config.MAX_EPOCHS} epochs")
+                                        
+                                        for epoch in range(1, Config.MAX_EPOCHS + 1):
+                                            print(f"\n[Checkpoint] --- Epoch {epoch}/{Config.MAX_EPOCHS} ---")
                                             
-                                            # Early stopping based on AUPRC
-                                            if val_metrics['auprc'] > current_best_val_auprc:
-                                                current_best_val_auprc = val_metrics['auprc']
-                                                best_epoch = epoch
-                                                epochs_no_improve = 0
-                                            else:
-                                                epochs_no_improve += 1
-                                                if epochs_no_improve >= Config.PATIENCE:
-                                                    print(f"[Checkpoint] Early stopping at epoch {epoch} (no AUPRC improvement for {Config.PATIENCE} evaluations)")
+                                            loss = trainer.train(self.data_train, optimizer)
+                                            
+                                            if np.isnan(loss):
+                                                nan_epochs += 1
+                                                print(f"[Checkpoint] NaN loss detected, nan_epochs={nan_epochs}")
+                                                if nan_epochs >= 3:  # Skip this configuration after 3 consecutive NaN epochs
+                                                    print("[Checkpoint] Too many NaN epochs, skipping configuration")
                                                     break
-                                    
-                                    print(f"[Checkpoint] Configuration completed. Best AUPRC: {current_best_val_auprc:.6f}")
-                                except Exception as e:
-                                    print(f"[Checkpoint] Error during configuration {config_num-1}: {str(e)}")
-                                    print("[Checkpoint] Skipping to next configuration")
-                                    continue
+                                            else:
+                                                nan_epochs = 0  # Reset counter on successful epoch
+                                                print(f"[Checkpoint] Epoch {epoch} training loss: {loss:.6f}")
 
-        print("\n[Checkpoint] ====== Final GAT Evaluation ======")
+                                            if epoch % 5 == 0 and not np.isnan(loss):
+                                                val_metrics = trainer.evaluate(self.data_val)
+                                                print(f"[Checkpoint] Validation metrics - AUC: {val_metrics['auc']:.6f}, AUPRC: {val_metrics['auprc']:.6f}, Loss: {val_metrics['loss']:.6f}")
+                                                print(f"[Checkpoint] Validation lifts - @0.5%: {val_metrics['lift_0005']:.6f}, @1%: {val_metrics['lift_001']:.6f}, @5%: {val_metrics['lift_005']:.6f}, @10%: {val_metrics['lift_01']:.6f}")
+
+                                                # Update best model based on AUPRC improvement
+                                                if val_metrics['auprc'] > best_val_auprc:
+                                                    print(f"[Checkpoint] New best model found! AUPRC: {val_metrics['auprc']:.6f} (previous best: {best_val_auprc:.6f})")
+                                                    best_val_auprc = val_metrics['auprc']
+                                                    best_model = deepcopy(model)
+                                                    best_config = (lr, hidden, num_layers, alpha, gamma, heads, concat)
+                                                
+                                                # Early stopping based on AUPRC
+                                                if val_metrics['auprc'] > current_best_val_auprc:
+                                                    current_best_val_auprc = val_metrics['auprc']
+                                                    best_epoch = epoch
+                                                    epochs_no_improve = 0
+                                                else:
+                                                    epochs_no_improve += 1
+                                                    if epochs_no_improve >= Config.PATIENCE:
+                                                        print(f"[Checkpoint] Early stopping at epoch {epoch} (no AUPRC improvement for {Config.PATIENCE} evaluations)")
+                                                        break
+                                        
+                                        print(f"[Checkpoint] Configuration completed. Best AUPRC: {current_best_val_auprc:.6f}")
+                                    except Exception as e:
+                                        print(f"[Checkpoint] Error during configuration {config_num-1}: {str(e)}")
+                                        print("[Checkpoint] Skipping to next configuration")
+                                        continue
+
+        print("\n[Checkpoint] ====== Final Evaluation ======")
         
         # Evaluate the best model
         if best_model is not None:
-            print(f"[Checkpoint] Evaluating best GAT model")
-            _,_,_,_,best_alpha,best_gamma = best_config
+            print(f"[Checkpoint] Evaluating best model")
+            _,_,_,best_alpha,best_gamma,_,_ = best_config
             test_metrics = GATTrainer(best_model, Config.DEVICE, best_alpha, best_gamma).evaluate(self.data_test, calculate_emp=True)
             
-            print(f"[Checkpoint] Best GAT config (lr={best_config[0]}, hidden={best_config[1]}, layers={best_config[2]}, heads={best_config[3]}, alpha={best_config[4]}, gamma={best_config[5]}):")
+            print(f"[Checkpoint] Best config (lr={best_config[0]}, hidden={best_config[1]}, layers={best_config[2]}, "
+                  f"alpha={best_config[3]}, gamma={best_config[4]}, heads={best_config[5]}, concat={best_config[6]}):")
             print(f"[Checkpoint] Test AUPRC={test_metrics['auprc']:.6f}")
             print(f"[Checkpoint] Test AUC={test_metrics['auc']:.6f}")
             print(f"[Checkpoint] Test EMP={test_metrics['emp']:.6f}")
@@ -587,7 +598,7 @@ class GATExperiment:
 
             # Save model predictions for further analysis
             try:
-                print("\n[Checkpoint] Saving best GAT model predictions for analysis")
+                print("\n[Checkpoint] Saving best model predictions for analysis")
                 
                 # Create DataFrame with predictions
                 predictions_df = pd.DataFrame({
@@ -597,24 +608,23 @@ class GATExperiment:
                 
                 # Save to CSV
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                predictions_df.to_csv(f"best_gat_predictions_{timestamp}.csv", index=False)
-                print(f"[Checkpoint] Predictions saved as best_gat_predictions_{timestamp}.csv")
+                predictions_df.to_csv(f"best_gat_model_predictions_{timestamp}.csv", index=False)
+                print(f"[Checkpoint] Predictions saved as best_gat_model_predictions_{timestamp}.csv")
             except Exception as e:
                 print(f"[Checkpoint] Error saving predictions: {str(e)}")
 
         return best_model
-
 
 if __name__ == "__main__":
     # Set manual seeds for reproducibility
     torch.manual_seed(42)
     np.random.seed(42)
     
-    print("[Checkpoint] ====== GAT Script Started ======")
+    print("[Checkpoint] ====== Script Started ======")
     try:
-        experiment = GATExperiment()
+        experiment = Experiment()
         best_model = experiment.run_hyperparameter_tuning()
-        print("[Checkpoint] ====== GAT Script Finished ======")
+        print("[Checkpoint] ====== Script Finished ======")
     except Exception as e:
         print(f"[Checkpoint] CRITICAL ERROR: {str(e)}")
         import traceback
