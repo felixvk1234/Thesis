@@ -30,8 +30,8 @@ class Config:
     TEST_LABEL = "L_test.csv"
     TEST_RMF = "test_rmf.csv"
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    LEARNING_RATES = [0.01, 0.001, 0.0001]
-    HIDDEN_CHANNELS = [32, 128, 256]
+    LEARNING_RATES = [0.01, 0.0001]
+    HIDDEN_CHANNELS = [32, 256]
     LAYERS = [1, 3]
     PATIENCE = 15
     MAX_EPOCHS = 200
