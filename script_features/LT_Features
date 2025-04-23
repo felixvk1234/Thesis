@@ -1,0 +1,120 @@
+setwd("/Users/lujingxu/Desktop/Master_thesis/MobileVikings")
+library(dplyr)
+
+# train on oot
+load("L_M1.RData") #labels come from april
+usr<-L_M1$USR
+# variables: resency, frequency, monetary (30,60,90 days) on/off net, #different numbers dialed on/off net, # different numbers dialling the number on/off net
+key<-read.csv("Mobile_IDKey.csv")
+#################
+## In network
+################
+variables_inNet<-cbind(USR=usr,R_on=rep(1000,length(usr)),M_30_on=rep(0,length(usr)),M_60_on=rep(0,length(usr)),M_90_on=rep(0,length(usr)),F_30_on=rep(0,length(usr)),F_60_on=rep(0,length(usr)),F_90_on=rep(0,length(usr)))
+#Start looking in march, from the back
+variables_inNet<-as.data.frame(variables_inNet)
+
+
+# File folders and days (latest day first)
+folders_days <- list(
+  "November" = 30:1,
+  "October" = 31:2
+)
+
+days<-0
+
+# Loop through both months
+for (folder in names(folders_days)) {
+  for (i in folders_days[[folder]]) {
+    file <- paste0(folder, "/", i, ".RData")
+    
+    if (!file.exists(file)) {
+      warning(paste("Missing file:", file))
+      next
+    }
+    
+    load(file)
+    f <- as.data.frame(f)
+    f <- tibble::as_tibble(f)
+    
+    f$X7 <- key[match(unlist(f[, 1]), key[, 1]), 2]
+    
+    f <- f %>%
+      group_by(X7) %>%
+      summarize(
+        count = sum(count),
+        length = sum(length),
+        .groups = "drop"
+      )
+    
+    a <- usr %in% f$X7
+    b <- f$X7 %in% usr
+    
+    variables_inNet$R_on[a] <- pmin(variables_inNet$R_on[a], days)
+    variables_inNet$M_60_on[which(a)] <- f$length[b] + variables_inNet$M_60_on[which(a)]
+    variables_inNet$F_60_on[which(a)] <- f$count[b] + variables_inNet$F_60_on[which(a)]
+    
+    days <- days + 1
+  }
+}
+
+##############################
+# NumDialing and NumDialed (60 days)
+##############################
+daily_data <- list()
+index <- 1
+
+for (folder in names(folders_days)) {
+  for (i in folders_days[[folder]]) {
+    file_path <- paste0(folder, "/", i, ".RData")
+    
+    if (!file.exists(file_path)) {
+      warning(paste("File not found:", file_path))
+      next
+    }
+    
+    load(file_path)
+    
+    f <- tryCatch({
+      as.data.frame(f) %>%
+        tibble::as_tibble() %>%
+        mutate(
+          X7 = key[match(unlist(.[[1]]), key[, 1]), 2],
+          X8 = key[match(unlist(.[[2]]), key[, 1]), 2]
+        )
+    }, error = function(e) {
+      stop(paste("Error processing file", file_path, ":", e$message))
+    })
+    
+    daily_data[[index]] <- f
+    index <- index + 1
+  }
+}
+
+f_m <- bind_rows(daily_data) %>%
+  group_by(X7, X8) %>%
+  summarize(
+    count = sum(count, na.rm = TRUE),
+    length = sum(length, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Dialing features (60 days)
+tmp <- f_m %>% group_by(X7) %>% summarize(numDialing_60_on = n_distinct(X8))
+colnames(tmp)[1] <- "USR"
+variables_inNet <- variables_inNet %>% left_join(tmp, by = "USR")
+
+tmp <- f_m %>% group_by(X8) %>% summarize(numDialed_60_on = n_distinct(X7))
+colnames(tmp)[1] <- "USR"
+variables_inNet <- variables_inNet %>% left_join(tmp, by = "USR")
+
+# Finalize and save
+variables_inNet[is.na(variables_inNet)] <- 0
+variables_inNet$churn <- L_M1$churn_m1
+variables_inNet <- as.data.frame(variables_inNet)
+
+save(variables_inNet, file = "train_rmf_mobile_LT.RData")
+write.csv(
+  variables_inNet,
+  "/Users/lujingxu/Desktop/Master_thesis/Data/Data_churn/Transformed_data/MobileVikings/train_rmf_LT.csv",
+  row.names = FALSE
+)
