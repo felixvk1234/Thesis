@@ -9,7 +9,7 @@ It also contains the code to train the data using the different methods.
 
 ![image](https://github.com/user-attachments/assets/d130d4f7-ef7e-42bf-86c0-030fe3aa2472)
 
-![image](https://github.com/user-attachments/assets/a509def5-0c62-4d53-9d31-f8a732362f1f)
+![image](https://github.com/user-attachments/assets/938461be-1861-4d27-8e1c-3ba4782a93f3)
 
 ![3d62aa9e-0156-47ee-85cf-bcc9801154eb](https://github.com/user-attachments/assets/90bfd07a-7e14-4947-95b5-5b91fb43af13)
 
