@@ -1,9 +1,14 @@
 # Thesis
 
-This contains the code to run my file on the cluster of the Vlaams Supercomputer Centrum. 
+This contains the code to run the models on the cluster of the Vlaams Supercomputer Centrum. 
 It also contains the code to train the data using the different methods. 
 - `Graph Convolutional Network`
 - `GraphSAGE`
+
+For 3 different datasets 
+- `Mobile Vikings`
+- `Proximus Prepaid`
+- `Proximus Postpaid`
 
 ![image](https://github.com/user-attachments/assets/a358f886-83dc-4e25-8412-3e80cd0ba675)
 
