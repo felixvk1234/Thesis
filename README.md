@@ -11,6 +11,4 @@ It also contains the code to train the data using the different methods.
 
 ![image](https://github.com/user-attachments/assets/938461be-1861-4d27-8e1c-3ba4782a93f3)
 
-![3d62aa9e-0156-47ee-85cf-bcc9801154eb](https://github.com/user-attachments/assets/90bfd07a-7e14-4947-95b5-5b91fb43af13)
-
 ![Screenshot 2025-04-09 101532](https://github.com/user-attachments/assets/8033c97e-517d-4635-a715-ca1aa55b1c61)
