@@ -19,7 +19,7 @@ print("[Checkpoint] All libraries imported successfully.")
 
 # Configuration
 class Config:
-    DATA_DIR = r"/data/leuven/373/vsc37331/Mobile_Vikings/"
+    DATA_DIR = r"/data/leuven/373/vsc37331/ProximusPost/"
     TRAIN_EDGE = "SN_M2_c.csv"
     TRAIN_LABEL = "L_M3.csv"
     TRAIN_RMF = "train_rmf.csv"
