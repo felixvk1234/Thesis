@@ -7,10 +7,7 @@ import random
 nodes = range(10)  # Fixed set of nodes
 pos = nx.spring_layout(nx.complete_graph(nodes), seed=42)  # Fixed positions
 
-
-
 months = 5
-
 fig, axes = plt.subplots(1, months, figsize=(15, 3))
 
 for month in range(months):
@@ -23,7 +20,14 @@ for month in range(months):
         edges.add((u, v))
     
     G.add_edges_from(edges)
-    
+
+    # Assign random weights for visual strength (width)
+    edge_widths = []
+    for u, v in G.edges():
+        weight = random.choices([1, 2.5], weights=[0.7, 0.3])[0]  # 30% chance to be bolder
+        G[u][v]['weight'] = weight
+        edge_widths.append(weight)
+
     # Assign node colors: mostly green, at most one red
     node_colors = ['green'] * len(nodes)
     if random.random() < 0.8:  # 80% chance to include a red node
@@ -32,15 +36,20 @@ for month in range(months):
     
     ax = axes[month]
     ax.set_title(f"Month {month+1}")
+    
     if month < 4:
-        nx.draw(G, pos, ax=ax, node_color=node_colors, edge_color='gray', with_labels=True)
+        nx.draw(G, pos, ax=ax, node_color=node_colors, edge_color='gray',
+                width=edge_widths, with_labels=True)
     else:
-        nx.draw(G, pos, ax=ax, node_color='white', edge_color='gray', with_labels=True)
+        nx.draw(G, pos, ax=ax, node_color='white', edge_color='gray',
+                width=edge_widths, with_labels=True)
         ax.set_title("Month 5 - Predict Node Colors")
+
 # Add legend
 fig.legend(handles=[
     plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=10, label='No churn'),
     plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=10, label='Churn')
 ], loc='lower center', ncol=2, bbox_to_anchor=(0.5, -0.05))
+
 plt.tight_layout()
 plt.show()
