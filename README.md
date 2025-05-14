@@ -4,6 +4,9 @@ This contains the code to run the models on the cluster of the Vlaams Supercompu
 It also contains the code to train the data using the different methods. 
 - `Graph Convolutional Network`
 - `GraphSAGE`
+- `Graph Attention Network`
+- `Graph Isomorphism Network`
+
 
 For 3 different datasets 
 - `Mobile Vikings`
