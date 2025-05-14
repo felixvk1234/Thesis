@@ -1,0 +1,19 @@
+file,best_config,Lift@0.5%,Lift@5%,AUPRC,AUC,EMP
+output_GCN_Long_l.log,"lr=0.0001, hidden=256, layers=3, alpha=0.75, gamma=2.0",0.890409,0.672007,0.21446,0.539424,4.165684
+output_GAT_short.log,"lr=0.01, hidden=128, layers=1, alpha=0.75, gamma=1.0",0.761398,1.152136,0.295053,0.63891,5.829821
+output_GCN_Short_c.log,"lr=0.0001, hidden=32, layers=1, alpha=0.75, gamma=2.0",3.521466,2.680858,0.550511,0.810346,7.763424
+output_GRAPHSAGE_long.log,"lr=0.001, hidden=256, layers=3, alpha=0.75, gamma=2.0",2.704826,3.237497,0.381993,0.564772,4.296909
+output_GCN_Short_lc.log,"lr=0.001, hidden=32, layers=1, alpha=0.75, gamma=2.0",1.226075,1.89971,0.503444,0.809498,7.85053
+output_GAT_short_l.log,"lr=0.0001, hidden=32, layers=1, alpha=0.5, gamma=1.0",2.78806,1.947273,0.374455,0.692056,6.454156
+output_GAT_long_l.log,"lr=0.0001, hidden=256, layers=1, alpha=0.75, gamma=1.0",0.498405,2.267255,0.345481,0.617091,4.459861
+output_GCN_Long.log,"lr=0.01, hidden=128, layers=3, alpha=0.75, gamma=2.0",2.749627,2.741745,0.350294,0.638603,5.06542
+output_GCN_Long_lc.log,"lr=0.01, hidden=256, layers=3, alpha=0.5, gamma=1.0",1.05841,0.88743,0.220397,0.527924,4.891018
+output_GRAPHSAGE_short.log,"lr=0.0001, hidden=256, layers=1, alpha=0.75, gamma=2.0",2.054655,3.258884,0.462215,0.588455,5.67433
+output_GIN_short.log,"lr=0.001, hidden=32, layers=1, alpha=0.75, gamma=1.0",0.319115,0.603767,0.24842,0.578021,5.783077
+output_GAT_long_c.log,"lr=0.001, hidden=128, layers=3, alpha=0.5, gamma=1.0",4.558444,3.924612,0.555486,0.7389,5.559218
+output_GAT_short_c.log,"lr=0.001, hidden=32, layers=3, alpha=0.5, gamma=1.0",3.045592,2.908599,0.492708,0.767049,7.109603
+output_GCN_Short.log,"lr=0.01, hidden=128, layers=3, alpha=0.75, gamma=1.0",2.860841,2.968472,0.535803,0.795331,7.523697
+output_GCN_Long_c.log,"lr=0.001, hidden=32, layers=1, alpha=0.5, gamma=2.0",3.360033,1.656797,0.431505,0.771033,6.267015
+output_GAT_long.log,"lr=0.01, hidden=32, layers=3, alpha=0.75, gamma=2.0",0.498405,1.159366,0.273331,0.646681,5.411716
+output_GCN_Short_l.log,"lr=0.001, hidden=32, layers=3, alpha=0.5, gamma=2.0",3.644633,2.875025,0.569155,0.812785,7.755844
+output_GIN_long.log,"lr=0.0001, hidden=256, layers=1, alpha=0.5, gamma=2.0",0.487205,0.65634,0.220821,0.562654,4.732836
