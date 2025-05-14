@@ -1,0 +1,17 @@
+file,best_config,Lift@0.5%,Lift@5%,AUPRC,AUC,EMP
+output_GCN_long_l.log,"lr=0.01, hidden=256, layers=3, alpha=0.5, gamma=1.0",1.537997,1.585971,0.420686,0.666497,0
+output_GAT_short.log,"lr=0.01, hidden=32, layers=1, alpha=0.75, gamma=2.0",0.461111,0.30275,0.030165,0.322329,0
+output_GCN_short_c.log,"lr=0.001, hidden=128, layers=3, alpha=0.75, gamma=1.0",0.21282,0.19474,0.031042,0.346074,0
+output_GRAPHSAGE_long.log,"lr=0.0001, hidden=32, layers=1, alpha=0.5, gamma=1.0",0.170889,0.215052,0.029787,0.330018,0
+output_GAT_short_l.log,"lr=0.0001, hidden=32, layers=3, alpha=0.5, gamma=1.0",0.151554,0.197642,0.036266,0.442139,0
+output_GRAPHSAGE_short (1).log,"lr=0.0001, hidden=32, layers=3, alpha=0.75, gamma=1.0",1.109246,1.31224,0.054375,0.605939,0
+output_GAT_long_l.log,"lr=0.001, hidden=128, layers=3, alpha=0.5, gamma=2.0",0.467525,0.701258,0.035358,0.425524,0.000024
+output_GCN_Long.log,"lr=0.0001, hidden=256, layers=3, alpha=0.75, gamma=1.0",0.651311,0.765097,0.040834,0.500603,0.00001
+output_GIN_short.log,"lr=0.01, hidden=32, layers=1, alpha=0.75, gamma=1.0",0.238617,0.243425,0.035566,0.431406,0
+output_GAT_long_c.log,"lr=0.001, hidden=256, layers=1, alpha=0.75, gamma=2.0",0.528787,0.4214,0.030359,0.335734,0
+output_GAT_short_c.log,"lr=0.001, hidden=32, layers=3, alpha=0.5, gamma=1.0",0.425641,0.238589,0.033716,0.397188,0
+output_GCN_Short.log,"lr=0.0001, hidden=128, layers=3, alpha=0.5, gamma=1.0",0.119308,0.164755,0.035116,0.423591,0
+output_GCN_long_c.log,"lr=0.0001, hidden=32, layers=1, alpha=0.75, gamma=2.0",0.348226,0.924371,0.055854,0.615606,0
+output_GAT_long.log,"lr=0.01, hidden=32, layers=1, alpha=0.75, gamma=2.0",0.667433,0.70158,0.043509,0.523824,0.000017
+output_GCN_short_l.log,"lr=0.0001, hidden=256, layers=3, alpha=0.75, gamma=2.0",0,0.244393,0.033861,0.403677,0
+output_GIN_long.log,"lr=0.001, hidden=32, layers=1, alpha=0.5, gamma=2.0",0.116075,0.120262,0.032332,0.385796,0
