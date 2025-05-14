@@ -1,0 +1,217 @@
+(thesis) (base) lujingxu@blocked Code % /opt/anaconda3/envs/thesis/bin/python /Users/lujingxu/Desktop/Master_thesis/Code/retrain_model.py
+[Checkpoint] All libraries imported successfully.
+[Checkpoint] Configuration initialized
+[Checkpoint] Using device: cpu
+[Checkpoint] Working directory set to: /Users/lujingxu/Desktop/Master_thesis/Data/Data_churn/Transformed_data/ProximusPost
+[Checkpoint] ====== Script Started ======
+[Checkpoint] ====== Starting Experiment setup ======
+[Checkpoint] Identified 14361 users who churned in month 1
+[Checkpoint] Loading training data with RMF features
+[Checkpoint] Loaded RMF, edge, and label data
+[Checkpoint] Starting remove_nodes_and_create_data
+[Checkpoint] Mapped 1206047 node indices to USRs
+[Checkpoint] Keeping all users including first month churners
+[Checkpoint] Keeping all edges including those involving first month churners
+[Checkpoint] Created mapping for 1206047 users
+[Checkpoint] Extracted edge weights with min=0.201896517994655, max=283.641920651479
+[Checkpoint] Missing i mappings: 0, Missing j mappings: 0
+/Users/lujingxu/Desktop/Master_thesis/Code/retrain_model.py:154: UserWarning: Creating a tensor from a list of numpy.ndarrays is extremely slow. Please consider converting the list to a single numpy.ndarray with numpy.array() before converting to a tensor. (Triggered internally at /Users/runner/miniforge3/conda-bld/libtorch_1719361051023/work/torch/csrc/utils/tensor_new.cpp:277.)
+  edge_index_0 = torch.tensor([mapped_i, mapped_j], dtype=torch.long)
+[Checkpoint] Created undirected edge index with shape: torch.Size([2, 7292108])
+[Checkpoint] Created edge weights with shape: torch.Size([7292108])
+[Checkpoint] Remaining feature columns: ['R_on', 'M_60_on', 'F_60_on', 'numDialing_60_on', 'numDialed_60_on']
+[Checkpoint] Node feature tensor shape: torch.Size([1206047, 5])
+[Checkpoint] Label tensor shape: torch.Size([1206047])
+[Checkpoint] Label distribution: tensor([1192987,   13060])
+[Checkpoint] Created Data object with 1206047 nodes, 7292108 edges, 5 features, and edge weights
+[Checkpoint] Class distribution - Positives: 13060, Negatives: 1192987
+[Checkpoint] Loading validation data with RMF features
+[Checkpoint] Loaded RMF, edge, and label data
+[Checkpoint] Starting remove_nodes_and_create_data
+[Checkpoint] Mapped 1206047 node indices to USRs
+[Checkpoint] Keeping all users including first month churners
+[Checkpoint] Keeping all edges including those involving first month churners
+[Checkpoint] Created mapping for 1206047 users
+[Checkpoint] Extracted edge weights with min=0.0907179532894125, max=224.504615610275
+[Checkpoint] Missing i mappings: 0, Missing j mappings: 0
+[Checkpoint] Created undirected edge index with shape: torch.Size([2, 8566466])
+[Checkpoint] Created edge weights with shape: torch.Size([8566466])
+[Checkpoint] Remaining feature columns: ['R_on', 'M_60_on', 'F_60_on', 'numDialing_60_on', 'numDialed_60_on']
+[Checkpoint] Node feature tensor shape: torch.Size([1206047, 5])
+[Checkpoint] Label tensor shape: torch.Size([1206047])
+[Checkpoint] Label distribution: tensor([1190519,   15528])
+[Checkpoint] Created Data object with 1206047 nodes, 8566466 edges, 5 features, and edge weights
+[Checkpoint] Loading test data with RMF features
+[Checkpoint] Loaded RMF, edge, and label data
+[Checkpoint] Starting remove_nodes_and_create_data
+[Checkpoint] Mapped 1206047 node indices to USRs
+[Checkpoint] Keeping all users including first month churners
+[Checkpoint] Keeping all edges including those involving first month churners
+[Checkpoint] Created mapping for 1206047 users
+[Checkpoint] Extracted edge weights with min=0.0407622039783662, max=122.584926715704
+[Checkpoint] Missing i mappings: 0, Missing j mappings: 0
+[Checkpoint] Created undirected edge index with shape: torch.Size([2, 8443206])
+[Checkpoint] Created edge weights with shape: torch.Size([8443206])
+[Checkpoint] Remaining feature columns: ['R_on', 'M_60_on', 'F_60_on', 'numDialing_60_on', 'numDialed_60_on']
+[Checkpoint] Node feature tensor shape: torch.Size([1206047, 5])
+[Checkpoint] Label tensor shape: torch.Size([1206047])
+[Checkpoint] Label distribution: tensor([1195879,   10168])
+[Checkpoint] Created Data object with 1206047 nodes, 8443206 edges, 5 features, and edge weights
+[Checkpoint] Experiment initialization complete
+
+[Checkpoint] ====== Retraining Best Model with Full Evaluation ======
+[Checkpoint] Initializing EnhancedGCN with 5 input features, 32 embedding dim, 128 hidden channels, 1 layers
+[Checkpoint] Total parameters: 38618913
+
+[Checkpoint] --- Retrain Epoch 1/200 ---
+[Checkpoint] Training loss: 0.092777
+[Checkpoint] Validation AUPRC: 0.012259, AUC: 0.488436, Loss: 0.091274
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 1 with AUPRC: 0.012259
+
+[Checkpoint] --- Retrain Epoch 2/200 ---
+[Checkpoint] Training loss: 0.091221
+[Checkpoint] Validation AUPRC: 0.013488, AUC: 0.520302, Loss: 0.089936
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 2 with AUPRC: 0.013488
+
+[Checkpoint] --- Retrain Epoch 3/200 ---
+[Checkpoint] Training loss: 0.089853
+[Checkpoint] Validation AUPRC: 0.013383, AUC: 0.518986, Loss: 0.088652
+
+[Checkpoint] --- Retrain Epoch 4/200 ---
+[Checkpoint] Training loss: 0.088471
+[Checkpoint] Validation AUPRC: 0.013476, AUC: 0.521640, Loss: 0.087334
+
+[Checkpoint] --- Retrain Epoch 5/200 ---
+[Checkpoint] Training loss: 0.087087
+[Checkpoint] Validation AUPRC: 0.013809, AUC: 0.531964, Loss: 0.085945
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 5 with AUPRC: 0.013809
+
+[Checkpoint] --- Retrain Epoch 6/200 ---
+[Checkpoint] Training loss: 0.085647
+[Checkpoint] Validation AUPRC: 0.014125, AUC: 0.543091, Loss: 0.084478
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 6 with AUPRC: 0.014125
+
+[Checkpoint] --- Retrain Epoch 7/200 ---
+[Checkpoint] Training loss: 0.084152
+[Checkpoint] Validation AUPRC: 0.014318, AUC: 0.550242, Loss: 0.082939
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 7 with AUPRC: 0.014318
+
+[Checkpoint] --- Retrain Epoch 8/200 ---
+[Checkpoint] Training loss: 0.082592
+[Checkpoint] Validation AUPRC: 0.014402, AUC: 0.553246, Loss: 0.081333
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 8 with AUPRC: 0.014402
+
+[Checkpoint] --- Retrain Epoch 9/200 ---
+[Checkpoint] Training loss: 0.080967
+[Checkpoint] Validation AUPRC: 0.014458, AUC: 0.554698, Loss: 0.079653
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 9 with AUPRC: 0.014458
+
+[Checkpoint] --- Retrain Epoch 10/200 ---
+[Checkpoint] Training loss: 0.079262
+[Checkpoint] Validation AUPRC: 0.014483, AUC: 0.555548, Loss: 0.077902
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 10 with AUPRC: 0.014483
+
+[Checkpoint] --- Retrain Epoch 11/200 ---
+[Checkpoint] Training loss: 0.077484
+[Checkpoint] Validation AUPRC: 0.014504, AUC: 0.556100, Loss: 0.076079
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 11 with AUPRC: 0.014504
+
+[Checkpoint] --- Retrain Epoch 12/200 ---
+[Checkpoint] Training loss: 0.075615
+[Checkpoint] Validation AUPRC: 0.014520, AUC: 0.556539, Loss: 0.074176
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 12 with AUPRC: 0.014520
+
+[Checkpoint] --- Retrain Epoch 13/200 ---
+[Checkpoint] Training loss: 0.073661
+[Checkpoint] Validation AUPRC: 0.014522, AUC: 0.556824, Loss: 0.072198
+[Checkpoint] Saved best model to best_model_GCN_long_c.pt
+[Checkpoint] New best model found at epoch 13 with AUPRC: 0.014522
+
+[Checkpoint] --- Retrain Epoch 14/200 ---
+[Checkpoint] Training loss: 0.071634
+[Checkpoint] Validation AUPRC: 0.014513, AUC: 0.557045, Loss: 0.070150
+
+[Checkpoint] --- Retrain Epoch 15/200 ---
+[Checkpoint] Training loss: 0.069529
+[Checkpoint] Validation AUPRC: 0.014489, AUC: 0.557173, Loss: 0.068020
+
+[Checkpoint] --- Retrain Epoch 16/200 ---
+[Checkpoint] Training loss: 0.067349
+[Checkpoint] Validation AUPRC: 0.014456, AUC: 0.557285, Loss: 0.065819
+
+[Checkpoint] --- Retrain Epoch 17/200 ---
+[Checkpoint] Training loss: 0.065078
+[Checkpoint] Validation AUPRC: 0.014449, AUC: 0.557407, Loss: 0.063561
+
+[Checkpoint] --- Retrain Epoch 18/200 ---
+[Checkpoint] Training loss: 0.062750
+[Checkpoint] Validation AUPRC: 0.014462, AUC: 0.557578, Loss: 0.061254
+
+[Checkpoint] --- Retrain Epoch 19/200 ---
+[Checkpoint] Training loss: 0.060360
+[Checkpoint] Validation AUPRC: 0.014461, AUC: 0.557710, Loss: 0.058923
+
+[Checkpoint] --- Retrain Epoch 20/200 ---
+[Checkpoint] Training loss: 0.057925
+[Checkpoint] Validation AUPRC: 0.014461, AUC: 0.557835, Loss: 0.056573
+
+[Checkpoint] --- Retrain Epoch 21/200 ---
+[Checkpoint] Training loss: 0.055458
+[Checkpoint] Validation AUPRC: 0.014461, AUC: 0.557960, Loss: 0.054220
+
+[Checkpoint] --- Retrain Epoch 22/200 ---
+[Checkpoint] Training loss: 0.052969
+[Checkpoint] Validation AUPRC: 0.014456, AUC: 0.558067, Loss: 0.051886
+
+[Checkpoint] --- Retrain Epoch 23/200 ---
+[Checkpoint] Training loss: 0.050479
+[Checkpoint] Validation AUPRC: 0.014457, AUC: 0.558154, Loss: 0.049592
+
+[Checkpoint] --- Retrain Epoch 24/200 ---
+[Checkpoint] Training loss: 0.047992
+[Checkpoint] Validation AUPRC: 0.014450, AUC: 0.558190, Loss: 0.047333
+
+[Checkpoint] --- Retrain Epoch 25/200 ---
+[Checkpoint] Training loss: 0.045520
+[Checkpoint] Validation AUPRC: 0.014436, AUC: 0.558186, Loss: 0.045104
+
+[Checkpoint] --- Retrain Epoch 26/200 ---
+[Checkpoint] Training loss: 0.043101
+[Checkpoint] Validation AUPRC: 0.014407, AUC: 0.558085, Loss: 0.042941
+
+[Checkpoint] --- Retrain Epoch 27/200 ---
+[Checkpoint] Training loss: 0.040717
+[Checkpoint] Validation AUPRC: 0.014357, AUC: 0.557817, Loss: 0.040861
+
+[Checkpoint] --- Retrain Epoch 28/200 ---
+[Checkpoint] Training loss: 0.038428
+[Checkpoint] Validation AUPRC: 0.014336, AUC: 0.557565, Loss: 0.038878
+[Checkpoint] Early stopping during retraining at epoch 28
+
+[Checkpoint] ====== Final Evaluation ======
+[Checkpoint] Loaded best model state from retraining
+[Checkpoint] Evaluating best model
+/opt/anaconda3/envs/thesis/lib/python3.10/site-packages/EMP/metrics.py:242: RuntimeWarning: divide by zero encountered in divide
+  gamma_values = np.append(0, (roc[3]*(DELTA + PHI)*np.diff(roc[5]) + roc[2]*PHI*np.diff(roc[4])) / (roc[2]*(1 - DELTA)*np.diff(roc[4])))
+[Checkpoint] Test AUPRC=0.027628
+[Checkpoint] Test AUC=0.837051
+[Checkpoint] Test EMP=0.000000
+[Checkpoint] Test MP=0.000000
+[Checkpoint] Test Lift@0.5%=1.475274
+[Checkpoint] Test Lift@1%=1.652307
+[Checkpoint] Test Lift@5%=2.169564
+[Checkpoint] Test Lift@10%=4.230945
+
+[Checkpoint] Saving best model predictions for analysis
+[Checkpoint] Predictions saved as best_model_predictions_20250504_222136.csv
+[Checkpoint] ====== Script Finished ======
