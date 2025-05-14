@@ -17,6 +17,6 @@ For 3 different datasets
 
 <img src="https://github.com/user-attachments/assets/d130d4f7-ef7e-42bf-86c0-030fe3aa2472" width="500"/>
 
-![image](https://github.com/user-attachments/assets/938461be-1861-4d27-8e1c-3ba4782a93f3)
+![Example_Graph](https://github.com/user-attachments/assets/36dd5b59-eb3f-4fb6-a1f0-647822f622c6)
 
 ![Screenshot 2025-04-09 101532](https://github.com/user-attachments/assets/8033c97e-517d-4635-a715-ca1aa55b1c61)
